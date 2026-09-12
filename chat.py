@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import re
 import sys
 from dataclasses import dataclass
@@ -33,6 +34,13 @@ from buy_or_wait.solver import SolvedRequest, solve_request  # noqa: E402
 
 
 LINE = "-" * 50
+CSV_FIELDS = (
+    "request_id", "user_id", "request_date", "request_type", "requested_amount",
+    "desired_completion_date", "allows_partial_payment", "request_text",
+    "amount_safe_to_pay", "affordability_status", "recommended_payment_method",
+    "payment_plan", "earliest_date_for_full_payment", "spending_changes_needed",
+    "decision_explanation",
+)
 _PAYMENT_TOKEN = re.compile(r"^(\d{4}-\d{2}-\d{2}):([0-9]+(?:\.[0-9]+)?)$")
 
 
@@ -76,11 +84,14 @@ class BuyOrWaitTerminal:
         self.index: DatasetIndex = load_dataset(dataset_dir)
         self.debug = debug
         self.sample_mode = sample_mode
+        self.dataset_dir = Path(dataset_dir)
         self.request_source_filename = "sample_requests.csv" if sample_mode else "requests.csv"
         self.requests_by_id = (
             self.index.sample_requests_by_id if sample_mode else self.index.evaluation_requests_by_id
         )
-        self.sample_expected_by_id = self._load_sample_expected(dataset_dir) if sample_mode else {}
+        # Expected sample answers are intentionally loaded lazily by comparison()
+        # only after an independent solver result has been produced.
+        self.sample_expected_by_id: dict[str, dict[str, str]] = {}
         self.evidence_processor = EvidenceProcessor(self.index, model_adapter_from_environment())
 
     def recommendation(self, request_id: str) -> str:
@@ -92,7 +103,7 @@ class BuyOrWaitTerminal:
             view = self._build_view(request_id)
         except Exception as exc:
             return f"Unable to process {request_id}: {type(exc).__name__}: {exc}"
-        text = self._format_view(view)
+        text = self._csv_line(view)
         return text if not self.debug else text + "\n" + self._format_debug(view)
 
     def all_recommendations(self) -> Iterable[tuple[str, str]]:
@@ -122,33 +133,71 @@ class BuyOrWaitTerminal:
             view = self._build_view(request_id)
         except Exception as exc:
             return f"Unable to process {request_id}: {type(exc).__name__}: {exc}", False
-        actual = self._format_view(view)
+        actual = self._csv_line(view)
+        self.sample_expected_by_id = self._load_sample_expected(self.dataset_dir)
         expected = self.sample_expected_by_id.get(request_id, {})
-        comparisons = [
-            ("amount_safe_to_pay", self._decimal_equal(view.result.amount_safe_to_pay, expected.get("amount_safe_to_pay", ""))),
-            ("affordability_status", view.result.affordability_status == expected.get("affordability_status", "")),
-            ("recommended_payment_method", view.result.recommended_payment_method == expected.get("recommended_payment_method", "")),
-            ("payment_plan", view.result.payment_plan == expected.get("payment_plan", "")),
-            ("earliest_date_for_full_payment", (view.result.earliest_date_for_full_payment.isoformat() if view.result.earliest_date_for_full_payment else "") == expected.get("earliest_date_for_full_payment", "")),
-            ("spending_changes_needed", view.result.spending_changes_needed == expected.get("spending_changes_needed", "")),
-        ]
-        lines = ["AGENT RESULT", actual, "", "SAMPLE EXPECTED RESULT"]
-        for field, value in expected.items():
-            if field in {name for name, _ in comparisons}:
-                lines.append(f"{field}: {value}")
-        lines.extend(["", "COMPARISON"])
+        agent_values = self._record_values(view)
+        expected_values = self._expected_values(expected)
+        comparisons = [(field, self._field_equal(field, agent_values[field], expected_values[field])) for field in CSV_FIELDS]
+        lines = ["AGENT:", actual, "", "EXPECTED:", self._csv_line_from_values(expected_values), "", "FIELD COMPARISON:"]
         for field, matched in comparisons:
-            lines.append(f"- {field}: {'MATCH' if matched else 'MISMATCH'}")
+            lines.append(f"{field}: {'MATCH' if matched else 'MISMATCH'}")
         overall = all(matched for _, matched in comparisons)
-        lines.extend(["", f"Overall: {'MATCH' if overall else 'MISMATCH'}"])
+        lines.extend(["", f"Overall: {'MATCH' if overall else 'MISMATCH'}", "", "Sources:"])
+        lines.extend(self._source_lines(view))
+        if self.debug:
+            lines.extend(["", self._format_debug(view)])
         return "\n".join(lines), overall
 
     @staticmethod
-    def _decimal_equal(actual: Decimal, expected: str) -> bool:
-        try:
-            return actual == Decimal(expected)
-        except Exception:
-            return False
+    def _expected_values(row: dict[str, str]) -> dict[str, str]:
+        return {field: row.get(field, "") for field in CSV_FIELDS}
+
+    @staticmethod
+    def _field_equal(field: str, actual: str, expected: str) -> bool:
+        if field in {"requested_amount", "amount_safe_to_pay"}:
+            try:
+                return Decimal(actual) == Decimal(expected)
+            except Exception:
+                return False
+        if field == "allows_partial_payment":
+            return actual.lower() == expected.lower()
+        return actual == expected
+
+    @staticmethod
+    def _csv_line_from_values(values: dict[str, str]) -> str:
+        stream = io.StringIO(newline="")
+        csv.writer(stream, lineterminator="").writerow([values[field] for field in CSV_FIELDS])
+        return stream.getvalue()
+
+    @staticmethod
+    def _record_values(view: RecommendationView) -> dict[str, str]:
+        request, result = view.context.request, view.result
+        return {
+            "request_id": request.request_id,
+            "user_id": request.user_id,
+            "request_date": request.request_date.isoformat(),
+            "request_type": request.request_type,
+            "requested_amount": format(request.requested_amount, "f"),
+            "desired_completion_date": request.desired_completion_date.isoformat(),
+            "allows_partial_payment": str(request.allows_partial_payment).lower(),
+            "request_text": request.request_text,
+            "amount_safe_to_pay": format(result.amount_safe_to_pay, "f"),
+            "affordability_status": result.affordability_status,
+            "recommended_payment_method": result.recommended_payment_method,
+            "payment_plan": result.payment_plan,
+            "earliest_date_for_full_payment": result.earliest_date_for_full_payment.isoformat() if result.earliest_date_for_full_payment else "",
+            "spending_changes_needed": result.spending_changes_needed,
+            "decision_explanation": result.decision_explanation,
+        }
+
+    @classmethod
+    def _csv_line(cls, view: RecommendationView) -> str:
+        return cls._csv_line_from_values(cls._record_values(view))
+
+    @staticmethod
+    def csv_header() -> str:
+        return ",".join(CSV_FIELDS)
 
     def _build_view(self, request_id: str) -> RecommendationView:
         context = self.index.get_request_context(request_id)
@@ -318,6 +367,7 @@ def run_all(
     output_fn: Callable[[str], None] = print,
     *,
     compare: bool = False,
+    summary: bool = True,
 ) -> tuple[int, int, tuple[str, ...]]:
     """Run every selected request and return summary counts.
 
@@ -328,6 +378,7 @@ def run_all(
     failures: list[str] = []
     matches = 0
     mismatches: list[str] = []
+    mismatch_fields: dict[str, tuple[str, ...]] = {}
     request_ids = tuple(terminal.requests_by_id)
     for request_id in request_ids:
         if compare:
@@ -336,6 +387,10 @@ def run_all(
                 matches += 1
             else:
                 mismatches.append(request_id)
+                mismatch_fields[request_id] = tuple(
+                    field for field in CSV_FIELDS
+                    if f"{field}: MISMATCH" in text
+                )
         else:
             text = terminal.recommendation(request_id)
         output_fn(text)
@@ -344,6 +399,8 @@ def run_all(
         else:
             if not compare:
                 successful += 1
+    if not summary:
+        return (matches, len(mismatches), tuple(mismatches)) if compare else (successful, len(failures), tuple(failures))
     output_fn("=" * 50)
     if compare:
         output_fn(f"Requests processed: {len(request_ids)}")
@@ -351,6 +408,9 @@ def run_all(
         output_fn(f"Mismatches: {len(mismatches)}")
         if mismatches:
             output_fn("Mismatching request IDs: " + ", ".join(mismatches))
+            output_fn("Mismatching fields:")
+            for request_id in mismatches:
+                output_fn(f"- {request_id}: {', '.join(mismatch_fields[request_id])}")
     else:
         output_fn(f"Processed: {successful + len(failures)} requests")
         output_fn(f"Successful: {successful}")
@@ -364,6 +424,7 @@ def main() -> int:
     parser.add_argument("--dataset-dir", type=Path, default=ROOT / "dataset", help="Challenge dataset directory.")
     parser.add_argument("--official", action="store_true", help="Use requests.csv instead of the default sample_requests.csv test set.")
     parser.add_argument("--all", action="store_true", help="Print independent recommendations for every selected request.")
+    parser.add_argument("--csv", action="store_true", help="Emit CSV records (the default record format; --all adds the exact header).")
     parser.add_argument("--compare", action="store_true", help="Compare sample results with labelled columns without using them as inputs.")
     parser.add_argument("--output", type=Path, help="Optional human-readable output file for --all; never replaces output.csv.")
     parser.add_argument("--debug", action="store_true", help="Append factual source/record diagnostics to recommendations.")
@@ -377,7 +438,14 @@ def main() -> int:
                 parser.error("--output is supported only with --all")
             return run_compare_terminal(terminal) if args.compare else run_terminal(terminal)
         blocks: list[str] = []
-        successful, failed, _ = run_all(terminal, output_fn=blocks.append, compare=args.compare)
+        if not args.compare:
+            blocks.append(terminal.csv_header())
+        successful, failed, _ = run_all(
+            terminal,
+            output_fn=blocks.append,
+            compare=args.compare,
+            summary=not args.csv or args.compare,
+        )
         text = "\n".join(blocks) + "\n"
         print(text, end="")
         if args.output is not None:
