@@ -94,8 +94,13 @@ class BuyOrWaitTerminal:
         self.sample_expected_by_id: dict[str, dict[str, str]] = {}
         self.evidence_processor = EvidenceProcessor(self.index, model_adapter_from_environment())
 
-    def recommendation(self, request_id: str) -> str:
-        """Return one complete independent recommendation block for a valid ID."""
+    def recommendation(self, request_id: str, *, csv_mode: bool = False) -> str:
+        """Return one independent record without changing solver behavior.
+
+        The default terminal format is exactly one field per line, in the
+        public 15-field order.  ``csv_mode`` is retained for batch and machine
+        consumers; both formats are serialized from the same solved record.
+        """
         request_id = request_id.strip()
         if request_id not in self.requests_by_id:
             return f"Request ID not found: {request_id or '<empty>'}"
@@ -103,7 +108,7 @@ class BuyOrWaitTerminal:
             view = self._build_view(request_id)
         except Exception as exc:
             return f"Unable to process {request_id}: {type(exc).__name__}: {exc}"
-        text = self._csv_line(view)
+        text = self._csv_line(view) if csv_mode else self._line_record(view)
         return text if not self.debug else text + "\n" + self._format_debug(view)
 
     def all_recommendations(self) -> Iterable[tuple[str, str]]:
@@ -194,6 +199,12 @@ class BuyOrWaitTerminal:
     @classmethod
     def _csv_line(cls, view: RecommendationView) -> str:
         return cls._csv_line_from_values(cls._record_values(view))
+
+    @classmethod
+    def _line_record(cls, view: RecommendationView) -> str:
+        """Render the 15 fields one-per-line, with no labels or headings."""
+        values = cls._record_values(view)
+        return "\n".join(values[field].replace("\r", " ").replace("\n", " ") for field in CSV_FIELDS)
 
     @staticmethod
     def csv_header() -> str:
@@ -320,9 +331,7 @@ class BuyOrWaitTerminal:
 
 
 def run_terminal(terminal: BuyOrWaitTerminal, input_fn: Callable[[str], str] = input, output_fn: Callable[[str], None] = print) -> int:
-    """Repeatedly accept independent request IDs; no conversational state exists."""
-    output_fn("BUY OR WAIT - REQUEST RUNNER")
-    output_fn("Enter a request ID. Type 'exit' to quit.")
+    """Repeatedly accept independent IDs and print one 15-line record each."""
     while True:
         try:
             value = input_fn("> ").strip()
@@ -368,6 +377,7 @@ def run_all(
     *,
     compare: bool = False,
     summary: bool = True,
+    csv_mode: bool = False,
 ) -> tuple[int, int, tuple[str, ...]]:
     """Run every selected request and return summary counts.
 
@@ -392,7 +402,7 @@ def run_all(
                     if f"{field}: MISMATCH" in text
                 )
         else:
-            text = terminal.recommendation(request_id)
+            text = terminal.recommendation(request_id, csv_mode=csv_mode)
         output_fn(text)
         if not compare and text.startswith("Unable to process"):
             failures.append(request_id)
@@ -424,7 +434,7 @@ def main() -> int:
     parser.add_argument("--dataset-dir", type=Path, default=ROOT / "dataset", help="Challenge dataset directory.")
     parser.add_argument("--official", action="store_true", help="Use requests.csv instead of the default sample_requests.csv test set.")
     parser.add_argument("--all", action="store_true", help="Print independent recommendations for every selected request.")
-    parser.add_argument("--csv", action="store_true", help="Emit CSV records (the default record format; --all adds the exact header).")
+    parser.add_argument("--csv", action="store_true", help="Emit comma-separated records; default interactive output is one field per line.")
     parser.add_argument("--compare", action="store_true", help="Compare sample results with labelled columns without using them as inputs.")
     parser.add_argument("--output", type=Path, help="Optional human-readable output file for --all; never replaces output.csv.")
     parser.add_argument("--debug", action="store_true", help="Append factual source/record diagnostics to recommendations.")
@@ -438,13 +448,14 @@ def main() -> int:
                 parser.error("--output is supported only with --all")
             return run_compare_terminal(terminal) if args.compare else run_terminal(terminal)
         blocks: list[str] = []
-        if not args.compare:
+        if not args.compare and args.csv:
             blocks.append(terminal.csv_header())
         successful, failed, _ = run_all(
             terminal,
             output_fn=blocks.append,
             compare=args.compare,
             summary=not args.csv or args.compare,
+            csv_mode=args.csv,
         )
         text = "\n".join(blocks) + "\n"
         print(text, end="")

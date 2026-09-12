@@ -58,6 +58,18 @@ class NormalizationTests(unittest.TestCase):
         self.assertEqual("expense", recurring.event_kind)
         self.assertFalse(recurring.is_flexible)
 
+    def test_fixed_category_does_not_merge_unrelated_descriptions(self) -> None:
+        events = normalize_user_events(self.index, "user_01")
+        groceries = [item for item in events if item.category == "groceries"]
+        rent = [item for item in events if item.category == "rent"]
+        flexible_dining = [item for item in events if item.category == "dining"]
+        self.assertTrue(groceries)
+        grocery_by_description = {item.description: item.is_recurring for item in groceries}
+        self.assertTrue(grocery_by_description["Supermarket basket"])
+        self.assertFalse(grocery_by_description["Grocery delivery"])
+        self.assertTrue(rent and all(item.is_recurring for item in rent))
+        self.assertTrue(flexible_dining and all(item.is_recurring for item in flexible_dining))
+
     def test_pending_and_unrealized_events_are_distinguished(self) -> None:
         pending = next(item for item in normalize_user_events(self.index, "user_01") if item.event_id == "event_102")
         self.assertEqual("reserve_pending_debit", pending.cash_treatment)

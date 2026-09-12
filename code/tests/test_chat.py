@@ -31,9 +31,16 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(250, len(self.official.requests_by_id))
 
     def test_sample_request_01_and_request_25_lookup(self) -> None:
-        self.assertEqual(15, len(next(csv.reader([self.sample.recommendation("request_01")]))))
-        self.assertEqual(15, len(next(csv.reader([self.sample.recommendation("request_25")]))))
+        self.assertEqual(15, len(self.sample.recommendation("request_01").splitlines()))
+        self.assertEqual(15, len(self.sample.recommendation("request_25").splitlines()))
         self.assertEqual("Request ID not found: request_26", self.sample.recommendation("request_26"))
+
+    def test_default_record_is_one_field_per_line_and_csv_mode_is_explicit(self) -> None:
+        lines = self.sample.recommendation("request_01").splitlines()
+        self.assertEqual(15, len(lines))
+        csv_values = next(csv.reader([self.sample.recommendation("request_01", csv_mode=True)]))
+        self.assertEqual(15, len(csv_values))
+        self.assertEqual(lines[0], csv_values[0])
 
     def test_csv_header_has_exact_required_order(self) -> None:
         self.assertEqual(
@@ -44,9 +51,9 @@ class TerminalTests(unittest.TestCase):
     def test_official_request_26_69_and_final_lookup(self) -> None:
         for request_id in ("request_26", "request_69", "request_275"):
             with self.subTest(request_id=request_id):
-                values = next(csv.reader([self.official.recommendation(request_id)]))
+                values = self.official.recommendation(request_id, csv_mode=True).split(",", 1)
                 self.assertEqual(request_id, values[0])
-                self.assertEqual(15, len(values))
+                self.assertEqual(15, len(next(csv.reader([self.official.recommendation(request_id, csv_mode=True)]))))
 
     def test_sample_answer_columns_are_not_on_canonical_request(self) -> None:
         request = self.sample.index.get_request_context("request_01").request
@@ -89,15 +96,15 @@ class TerminalTests(unittest.TestCase):
         ids = ("request_01", "request_02", "request_10", "request_20", "request_25")
         texts = [self.sample.recommendation(request_id) for request_id in ids]
         for request_id, text in zip(ids, texts):
-            self.assertEqual(request_id, next(csv.reader([text]))[0])
-            self.assertEqual(15, len(next(csv.reader([text]))))
-        self.assertNotEqual(next(csv.reader([texts[1]]))[0], "request_01")
+            self.assertEqual(request_id, text.splitlines()[0])
+            self.assertEqual(15, len(text.splitlines()))
+        self.assertNotEqual(texts[1].splitlines()[0], "request_01")
 
     def test_runner_accepts_request_ids_and_exit_without_chat_prompts(self) -> None:
         inputs = iter(("request_01", "request_999", "exit"))
         output: list[str] = []
         self.assertEqual(0, run_terminal(self.sample, input_fn=lambda _prompt: next(inputs), output_fn=output.append))
-        self.assertTrue(any(next(csv.reader([item]))[0] == "request_01" for item in output if "," in item))
+        self.assertTrue(any(item.splitlines()[0] == "request_01" for item in output if item.splitlines()))
         self.assertIn("Request ID not found: request_999", output)
         self.assertFalse(any("What would you like to ask" in item for item in output))
 

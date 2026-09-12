@@ -59,7 +59,7 @@ This is the cash-flow and history ledger, joined by `user_id`; some rows link to
 | `event_id` | Unique ledger event identifier. It is also the target for message/image evidence and spending-change directives. |
 | `user_id` | Owner; joins to profile and request. |
 | `event_type` | Business event class. Actual values/counts: `expense` 20,525; `subscription` 2,488; `income` 1,696; `debt_payment` 567; `investment_purchase` 29; `refund` 22; `investment_valuation` 10; `investment_sale` 5. |
-| `description` | Human-readable descriptor; useful as supporting recurrence/evidence context, not a sole recurrence signal. |
+| `description` | Human-readable descriptor; fixed expense/income recurrence streams require a matching description, while contractual subscription/debt streams and explicitly flexible categories use their stable category identity. |
 | `category` | Spending/income category. Actual categories: rent, utilities, education, debt_repayment, music_subscription, delivery_membership, salary, groceries, transport, dining, shopping, housing, insurance, healthcare, entertainment, cloud_storage, streaming, gym, family_support, work_expense, investment, windfall. |
 | `direction` | `debit`, `credit`, or `non_cash`. Actual counts: 23,609, 1,723, and 10 respectively. |
 | `amount` | Event amount in `currency`. Sixteen actual rows are blank and must be read from their linked PNG, never converted to zero. |
@@ -194,7 +194,7 @@ Where conflicting facts exist, enforce the specified order: explicit cancellatio
 
 ## 5. Recurrence and 90-day forecasting
 
-Recurrence is represented implicitly by historical sequences, not by a recurrence column. The ledger contains repeated monthly salary/rent/utilities/debt/subscription patterns and repeated weekly/biweekly variable spending such as groceries, transport, dining, and shopping. Historical sequences must support the inference; a one-time purchase, transfer, refund, unusual payment, valuation, or windfall is not recurring merely because it has a familiar category.
+Recurrence is represented implicitly by historical sequences, not by a recurrence column. Historical sequences must support the inference; a one-time purchase, transfer, refund, unusual payment, valuation, or windfall is not recurring merely because it has a familiar category. The implementation keeps contractual subscription/debt streams and explicit flexible categories together, but requires fixed expense/income descriptions to match so unrelated category members are not merged.
 
 The forecast starts at each request’s `request_date` and runs through the next 90 calendar days. It needs a date-ordered cash ledger with:
 

@@ -310,7 +310,7 @@ class Decision:
 | `loaders.py` | Read every dataset CSV, resolve image paths, index joins, validate referential integrity. | Forecast or choose plans. |
 | `evidence.py` | Extract/cache schema-valid facts from messages/images; expose provider interface. | Decide cash safety or alter output directly. |
 | `reconciliation.py` | Apply facts, status rules, linked-event de-duplication, self-transfer treatment, dated conversion; emit `CashMovement`. | Infer plan rankings. |
-| `recurrence.py` | Infer repeatable cash streams from reconciled history and generate conservative projected movements. | Treat one-off events as recurring without support. |
+| `recurrence.py` | Infer repeatable cash streams from reconciled history and generate conservative projected movements. Fixed expense/income streams require matching descriptions; contractual subscriptions/debt payments and explicitly flexible categories retain stable category grouping. | Treat one-off events or unrelated category descriptions as recurring without support. |
 | `forecast.py` | Deterministic daily 90-day simulation and safe-amount/date queries. | Parse evidence or select methods. |
 | `plans.py` | Enumerate full, partial, instalment, wait, and bounded spending-change candidates. | Declare a plan valid without validator. |
 | `validation.py` | Validate eligibility, schedule, deadline, spending changes, floor, and output invariants. | Rank alternatives. |

@@ -106,8 +106,16 @@ def _cash_treatment(event: FinancialEvent, lifecycle_role: str) -> str:
 
 
 def _recurring_event_ids(events: Iterable[FinancialEvent]) -> set[str]:
-    """Infer recurrence only from at least three regular, eligible historical observations."""
-    groups: defaultdict[tuple[str, str, str, str], list[FinancialEvent]] = defaultdict(list)
+    """Infer recurrence only from regular observations of one financial stream.
+
+    ``category`` alone is not an identity: a user's groceries, taxis, and
+    restaurant visits can share a category while being unrelated one-off
+    purchases.  Historical expense/income streams therefore also require the
+    source description to match.  Subscription and debt-payment categories are
+    contractual streams in the supplied data, so their category remains the
+    stable identity even when a provider's wording changes slightly.
+    """
+    groups: defaultdict[tuple[str, ...], list[FinancialEvent]] = defaultdict(list)
     for event in events:
         if event.status not in {"settled", "pending", "scheduled"}:
             continue
@@ -115,7 +123,15 @@ def _recurring_event_ids(events: Iterable[FinancialEvent]) -> set[str]:
             continue
         if event.category == "windfall":
             continue
-        groups[(event.event_type, event.category, event.direction, event.currency)].append(event)
+        key: tuple[str, ...] = (event.event_type, event.category, event.direction, event.currency)
+        # Explicitly flexible expenses are a user-controlled recurring
+        # category (for example dining or shopping), so keep those together
+        # for spending-change eligibility.  Fixed expense/income rows require
+        # the description to match; this avoids turning unrelated historical
+        # purchases in one category into a mandatory future stream.
+        if event.event_type not in {"subscription", "debt_payment"} and event.flexibility == "fixed":
+            key += (event.description,)
+        groups[key].append(event)
     recurring: set[str] = set()
     for values in groups.values():
         ordered = sorted(values, key=lambda item: item.settlement_date or item.event_date)

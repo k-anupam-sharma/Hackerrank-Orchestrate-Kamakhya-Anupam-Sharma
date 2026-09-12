@@ -115,7 +115,7 @@ python chat.py
 python chat.py --debug
 ```
 
-Enter one sample request ID, for example `request_01`. The runner independently calls the same `solve_request` pipeline used by the submission flow and prints one CSV record with the eight original request fields followed by the seven calculated recommendation fields. It then returns to the `>` prompt for another ID. There is no active conversation state, no natural-language follow-up mode, and no financial calculation in `chat.py`. Only canonical request-input columns are loaded into the solver; labelled answer columns are isolated for `--compare` display.
+Enter one sample request ID, for example `request_01`. The runner independently calls the same `solve_request` pipeline used by the submission flow and prints exactly the 15 fields, in public-schema order, one per line with no labels or headings. It then returns to the `>` prompt for another ID. Use `--csv` when a comma-separated record is required. There is no active conversation state, no natural-language follow-up mode, and no financial calculation in `chat.py`. Only canonical request-input columns are loaded into the solver; labelled answer columns are isolated for `--compare` display.
 
 Process every sample request without prompting:
 
@@ -127,7 +127,7 @@ python chat.py --all --compare --output sample_recommendations.txt
 
 `chat.py` defaults to `dataset/sample_requests.csv` (currently 25 requests) for temporary testing. `--compare` shows the independently generated record beside the sample labels and never feeds labels into the solver. `--all` processes every request in the selected set; `--output` writes the same terminal records/diagnostics only and never replaces official `output.csv`. Use `--official` to inspect `dataset/requests.csv` through the same presentation layer. The optional `--debug` flag appends factual source/record diagnostics to each record. It does not expose chain-of-thought. The official solver remains `python main.py` and always uses `dataset/requests.csv` by default.
 
-The exact 15-column terminal record header is available in `--all` output and is also used by `--csv`. Sample comparison details, including every mismatch field and source context, are recorded in [SAMPLE_COMPARISON_AUDIT.md](SAMPLE_COMPARISON_AUDIT.md).
+The exact 15-column terminal record header is available in `--all --csv` output and is also used by `--csv`. Sample comparison details, including every mismatch field and source context, are recorded in [SAMPLE_COMPARISON_AUDIT.md](SAMPLE_COMPARISON_AUDIT.md), with the current correctness findings in [SAMPLE_COMPARISON_REPORT.md](SAMPLE_COMPARISON_REPORT.md).
 
 ## Repository layout
 

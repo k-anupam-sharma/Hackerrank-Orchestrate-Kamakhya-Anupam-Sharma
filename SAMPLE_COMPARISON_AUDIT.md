@@ -1,4 +1,8 @@
-# Sample comparison audit
+# Sample comparison audit (historical pre-recurrence-fix snapshot)
+
+> This file preserves the first full mismatch audit for traceability. The
+> current post-fix values and field lists are in `SAMPLE_COMPARISON_REPORT.md`
+> and `SAMPLE_DATASET_ANALYSIS.md`.
 
 Run: `python chat.py --all --compare`
 
