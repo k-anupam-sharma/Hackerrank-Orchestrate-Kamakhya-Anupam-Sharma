@@ -197,3 +197,23 @@ class BalanceForecast:
     minimum_balance_to_keep: Money
     days: tuple[ForecastDay, ...]
     ignored_event_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PaymentPlan:
+    """A candidate request plan, before ranking or final decision selection."""
+
+    method: str
+    payments: tuple[ScheduledPayment, ...]
+    total_paid: Money
+    payment_option_id: str | None
+    financing_fee: Money
+    is_fallback: bool = False
+
+
+@dataclass(frozen=True)
+class PlanValidationResult:
+    is_valid: bool
+    completes_by_deadline: bool
+    errors: tuple[str, ...]
+    forecast: BalanceForecast | None
