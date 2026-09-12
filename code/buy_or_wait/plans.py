@@ -12,6 +12,7 @@ from .models import (
     NormalizedEvent, PaymentOption, PaymentPlan, PlanValidationResult,
     Request, ScheduledPayment, UserProfile,
 )
+from .spending_changes import SpendingChangeEngine
 
 
 def _option_schedule(option: PaymentOption) -> tuple[ScheduledPayment, ...]:
@@ -106,6 +107,10 @@ class PlanValidator:
             return PlanValidationResult(not errors, False, tuple(errors), None)
         if plan.method not in {"full_payment", "partial_payment", "installments", "wait"}:
             errors.append("unknown_payment_method")
+        errors.extend(SpendingChangeEngine().validate_changes(
+            changes=plan.spending_changes, profile=profile,
+            normalized_events=normalized_events, request_date=request.request_date,
+        ))
         accepted_method = "full_payment" if plan.method == "wait" else plan.method
         if accepted_method not in profile.payment_methods:
             errors.append("payment_method_not_accepted")
@@ -132,6 +137,7 @@ class PlanValidator:
             minimum_balance_to_keep=profile.minimum_balance_to_keep,
             normalized_events=normalized_events,
             request_date=request.request_date,
+            spending_changes=plan.spending_changes,
             proposed_payments=plan.payments,
             horizon_days=self.horizon_days,
         )

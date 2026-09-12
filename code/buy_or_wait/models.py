@@ -209,6 +209,7 @@ class PaymentPlan:
     payment_option_id: str | None
     financing_fee: Money
     is_fallback: bool = False
+    spending_changes: tuple[SpendingChange, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -217,6 +218,16 @@ class PlanValidationResult:
     completes_by_deadline: bool
     errors: tuple[str, ...]
     forecast: BalanceForecast | None
+
+
+@dataclass(frozen=True)
+class Recommendation:
+    """Output-ready deterministic fields for a selected payment plan."""
+
+    affordability_status: str
+    recommended_payment_method: str
+    payment_plan: str
+    spending_changes_needed: str
 
 
 @dataclass(frozen=True)

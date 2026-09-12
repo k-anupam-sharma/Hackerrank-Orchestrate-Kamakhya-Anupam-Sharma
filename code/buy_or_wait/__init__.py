@@ -7,6 +7,7 @@ from .forecast import forecast_balance, get_minimum_projected_balance, is_plan_s
 from .capacity import calculate_amount_safe_to_pay, find_earliest_safe_full_payment_date
 from .plans import PlanGenerator, PlanValidator
 from .spending_changes import SpendingChangeEngine
+from .ranking import choose_best_plan, map_plan_to_recommendation
 
 __all__ = [
     "DatasetIndex", "DatasetValidationError", "RequestContext", "load_dataset",
@@ -16,4 +17,5 @@ __all__ = [
     "calculate_amount_safe_to_pay", "find_earliest_safe_full_payment_date",
     "PlanGenerator", "PlanValidator",
     "SpendingChangeEngine",
+    "choose_best_plan", "map_plan_to_recommendation",
 ]
