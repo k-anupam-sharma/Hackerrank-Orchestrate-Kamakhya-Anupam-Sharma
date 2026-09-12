@@ -106,18 +106,25 @@ Never commit `.env` or an API key. If the provider, model, or key is absent, una
 
 `main.py` is the single solver entry point. `code/main.py` remains a compatibility entry point for the original starter layout; use the root command above for a portable clean-machine workflow.
 
-## Interactive testing chatbot
+## Terminal request runner
 
-Use the terminal chatbot to inspect real request decisions without changing the financial engine:
+Use the terminal request runner to inspect real request decisions without changing the financial engine:
 
 ```bash
 python chat.py
 python chat.py --debug
 ```
 
-Type `list` to see evaluation request IDs, then `select request_26` (or enter an ID directly). That creates an active request session containing the loaded request context, the computed solver result, validated evidence facts, normalized events, displayed payment plan, and 90-day forecast. Every follow-up keeps using that cached active state until `select <another_request>`, `reset`, or `exit`; normal questions do not rerun the solver.
+Enter one evaluation request ID, for example `request_67`. The runner independently calls the same `solve_request` pipeline used by the submission flow, prints one concise recommendation with automatic factual sources, and returns to the `>` prompt for another ID. There is no active conversation state, no natural-language follow-up mode, and no financial calculation in `chat.py`.
 
-Use `summary`, `forecast`, `plan`, `explanation`, and `sources`. `sources` shows factual provenance for the active request, while `sources request_69` inspects a different request without replacing the active one. Plain-language follow-ups cover affordability, safe amount, current/minimum balance, income, expenses, payment options, plan, forecast, and sources. The `--debug` mode shows source-backed events/facts, messages, images when a validated image fact exists, candidate plans, rejection reasons, and the selected plan; it does not expose chain-of-thought. The chatbot uses the same dataset and `solve_request` pipeline as the submission runner and does not ask an LLM to calculate money or make a recommendation.
+Process every evaluation request without prompting:
+
+```bash
+python chat.py --all
+python chat.py --all --output recommendations.txt
+```
+
+`--output` writes human-readable recommendation blocks only; it never replaces official `output.csv`. The optional `--debug` flag appends factual source/record diagnostics to each block. It does not expose chain-of-thought. The request runner uses the real dataset and `solve_request` pipeline and does not ask an LLM to calculate money or make a recommendation.
 
 ## Repository layout
 
