@@ -44,7 +44,9 @@ class EvaluationResult:
         return Counter(failure.category for failure in self.failures)
 
 
-def evaluate(dataset_dir: str | Path = "dataset", output_path: str | Path = "output.csv") -> EvaluationResult:
+def evaluate(
+    dataset_dir: str | Path = ROOT / "dataset", output_path: str | Path = ROOT / "output.csv",
+) -> EvaluationResult:
     index = load_dataset(dataset_dir)
     rows, header_failure = _read_rows(output_path)
     failures: list[EvaluationFailure] = []
@@ -62,7 +64,7 @@ def evaluate(dataset_dir: str | Path = "dataset", output_path: str | Path = "out
     return EvaluationResult(len(rows), Counter(row.get("affordability_status", "") for row in rows), tuple(failures))
 
 
-def write_report(result: EvaluationResult, report_path: str | Path = "evaluation_report.md") -> None:
+def write_report(result: EvaluationResult, report_path: str | Path = ROOT / "evaluation_report.md") -> None:
     by_category = result.failures_by_category
     examples: dict[str, list[str]] = defaultdict(list)
     for failure in result.failures:
