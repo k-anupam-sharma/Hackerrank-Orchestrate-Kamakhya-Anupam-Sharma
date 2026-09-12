@@ -82,6 +82,7 @@ Never commit `.env` or an API key. If the provider, model, or key is absent, una
 | Use a different dataset/output location | `python main.py --dataset-dir path/to/dataset --output-path path/to/output.csv` |
 | Run unit/integration tests | `python run_tests.py` |
 | Validate an output file | `python evaluate.py` |
+| Validate custom dataset/output paths | `python evaluate.py --dataset-dir path/to/dataset --output-path path/to/output.csv --report-path path/to/report.md` |
 
 `main.py` is the single solver entry point. `code/main.py` remains a compatibility entry point for the original starter layout; use the root command above for a portable clean-machine workflow.
 
@@ -119,5 +120,8 @@ For complete challenge rules, input schema details, and submission requirements,
 1. Run `python main.py`.
 2. Run `python evaluate.py` and confirm zero failures.
 3. Run `python run_tests.py`.
-4. Include the runnable code, `output.csv`, and `evaluation/usage_report.md` in the required submission archive.
-5. Keep secrets, local virtual environments, and `log.txt` out of version control.
+4. Run `python package_submission.py`. This creates a validated `code.zip` containing the runnable code, configuration template, README, prompts embedded in source, and the required `evaluation/usage_report.md`.
+5. Submit `code.zip`, root `output.csv`, and the required chat transcript as separate artifacts. No deployment service, container, endpoint, or Docker image is required by the challenge materials.
+6. Keep secrets, local virtual environments, datasets, generated outputs, and `log.txt` out of `code.zip`. Dataset paths remain configurable with `main.py --dataset-dir ...`.
+
+The submission page is: <https://www.hackerrank.com/contests/hackerrank-orchestrate-september26/challenges/buy-or-wait/submission>

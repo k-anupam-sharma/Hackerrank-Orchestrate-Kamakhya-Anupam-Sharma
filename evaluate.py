@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import argparse
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -271,6 +272,11 @@ def _rebuild_plan(method, payments, changes, index, request):
 
 
 if __name__ == "__main__":
-    result = evaluate()
-    write_report(result)
-    print(f"Evaluated {result.total_rows} rows; failures={len(result.failures)}; report=evaluation_report.md")
+    parser = argparse.ArgumentParser(description="Validate a Buy or Wait output.csv file.")
+    parser.add_argument("--dataset-dir", type=Path, default=ROOT / "dataset", help="Input dataset directory.")
+    parser.add_argument("--output-path", type=Path, default=ROOT / "output.csv", help="Output CSV to validate.")
+    parser.add_argument("--report-path", type=Path, default=ROOT / "evaluation_report.md", help="Report destination.")
+    args = parser.parse_args()
+    result = evaluate(args.dataset_dir, args.output_path)
+    write_report(result, args.report_path)
+    print(f"Evaluated {result.total_rows} rows; failures={len(result.failures)}; report={args.report_path}")
