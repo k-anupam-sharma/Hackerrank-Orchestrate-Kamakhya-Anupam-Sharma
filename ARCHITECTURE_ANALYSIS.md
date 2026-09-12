@@ -4,10 +4,11 @@
 
 This repository is a starter submission for HackerRank Orchestrate 2026. The work is to create a deterministic, AI-assisted financial-decision pipeline that emits one prediction for each evaluation request. The supplied evaluation cohort has 250 requests (`request_26` through `request_275`); 25 labelled examples (`request_01` through `request_25`) are available solely to infer the intended decision style and validate an implementation.
 
-The existing application sources are intentionally empty:
+The initial application entry-point layout contained multiple wrappers:
 
-* `code/main.py` — 0 bytes.
-* `evaluation/main.py` — compatibility wrapper for the independent evaluator.
+* `main.py` — the portable root solver wrapper now used by the documented commands.
+* `code/main.py` — a duplicate solver wrapper, removed during the entry-point cleanup.
+* `evaluation/main.py` — compatibility wrapper for the independent evaluator, renamed to `evaluation/evaluator_entrypoint.py`.
 * `evaluation/usage_report.md` — required final-run model-usage report.
 
 `README.md`, `problem_statement.md`, `AGENTS.md`, all CSV files, and all 16 PNG evidence files were inspected. There is no root-level `output.csv` yet; `dataset/output.csv` is a blank 250-row template. `README.md` requires the eventual program to write the final file to the repository root, not overwrite the dataset template.
@@ -344,7 +345,7 @@ dataset readers
 
 Suggested Python module boundaries when implementation begins:
 
-* `code/main.py`: CLI orchestration only (`--dataset-dir`, `--output-path`).
+* `main.py`: CLI orchestration only (`--dataset-dir`, `--output-path`).
 * `code/models.py`: typed dataclasses/enums and `Decimal` parsing.
 * `code/loaders.py`: input reads, joins, schema/integrity checks.
 * `code/evidence.py`: image/message extraction records with evidence source/timestamp/confidence; no unverified instruction following.
@@ -359,10 +360,10 @@ Implementation should first encode baseline rules and sample assertions, then ad
 
 ## 14. Simplest supported deployment/run mechanism
 
-Use a standard-library-first Python program at `code/main.py`, invoked from the repository root:
+Use the standard-library-first root entry point `main.py`:
 
 ```bash
-python3 code/main.py
+python3 main.py
 ```
 
 On Windows, `python main.py` is the portable equivalent. It should read `dataset/`, write root `output.csv`, use no secret or network dependency for deterministic core logic, and document any optional OCR/LLM setup separately. This directly matches the README and challenge contract: `python package_submission.py` builds `code.zip` with the runnable source, prompts/configuration, and `evaluation/usage_report.md`; submit it with root `output.csv` and `log.txt` as the chat transcript.

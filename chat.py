@@ -8,6 +8,7 @@ calculations, plan selection, evidence reconciliation, or output.csv writing.
 from __future__ import annotations
 
 import argparse
+import csv
 import re
 import sys
 from dataclasses import dataclass
@@ -57,17 +58,35 @@ class RecommendationView:
 
 
 class BuyOrWaitTerminal:
-    """Thin stateless adapter around the real dataset and `solve_request`."""
+    """Thin stateless adapter around the real dataset and ``solve_request``.
 
-    def __init__(self, dataset_dir: str | Path = ROOT / "dataset", *, debug: bool = False) -> None:
+    The terminal defaults to the labelled sample requests so it is convenient
+    for local testing.  ``solve_request`` still receives only the canonical
+    :class:`Request` fields loaded by ``load_dataset``; sample answer columns
+    are read separately and are used only by explicit comparison mode.
+    """
+
+    def __init__(
+        self,
+        dataset_dir: str | Path = ROOT / "dataset",
+        *,
+        debug: bool = False,
+        sample_mode: bool = True,
+    ) -> None:
         self.index: DatasetIndex = load_dataset(dataset_dir)
         self.debug = debug
+        self.sample_mode = sample_mode
+        self.request_source_filename = "sample_requests.csv" if sample_mode else "requests.csv"
+        self.requests_by_id = (
+            self.index.sample_requests_by_id if sample_mode else self.index.evaluation_requests_by_id
+        )
+        self.sample_expected_by_id = self._load_sample_expected(dataset_dir) if sample_mode else {}
         self.evidence_processor = EvidenceProcessor(self.index, model_adapter_from_environment())
 
     def recommendation(self, request_id: str) -> str:
         """Return one complete independent recommendation block for a valid ID."""
         request_id = request_id.strip()
-        if request_id not in self.index.evaluation_requests_by_id:
+        if request_id not in self.requests_by_id:
             return f"Request ID not found: {request_id or '<empty>'}"
         try:
             view = self._build_view(request_id)
@@ -78,8 +97,58 @@ class BuyOrWaitTerminal:
 
     def all_recommendations(self) -> Iterable[tuple[str, str]]:
         """Yield one formatted block per evaluation request in source CSV order."""
-        for request_id in self.index.evaluation_requests_by_id:
+        for request_id in self.requests_by_id:
             yield request_id, self.recommendation(request_id)
+
+    @staticmethod
+    def _load_sample_expected(dataset_dir: str | Path) -> dict[str, dict[str, str]]:
+        """Read labelled columns for comparison only, never as solver input."""
+        path = Path(dataset_dir) / "sample_requests.csv"
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            return {
+                row["request_id"]: row
+                for row in csv.DictReader(handle)
+                if row.get("request_id")
+            }
+
+    def comparison(self, request_id: str) -> tuple[str, bool]:
+        """Render an independently solved sample request beside its labels."""
+        request_id = request_id.strip()
+        if not self.sample_mode:
+            return "Comparison mode requires sample_requests.csv mode.", False
+        if request_id not in self.requests_by_id:
+            return f"Request ID not found: {request_id or '<empty>'}", False
+        try:
+            view = self._build_view(request_id)
+        except Exception as exc:
+            return f"Unable to process {request_id}: {type(exc).__name__}: {exc}", False
+        actual = self._format_view(view)
+        expected = self.sample_expected_by_id.get(request_id, {})
+        comparisons = [
+            ("amount_safe_to_pay", self._decimal_equal(view.result.amount_safe_to_pay, expected.get("amount_safe_to_pay", ""))),
+            ("affordability_status", view.result.affordability_status == expected.get("affordability_status", "")),
+            ("recommended_payment_method", view.result.recommended_payment_method == expected.get("recommended_payment_method", "")),
+            ("payment_plan", view.result.payment_plan == expected.get("payment_plan", "")),
+            ("earliest_date_for_full_payment", (view.result.earliest_date_for_full_payment.isoformat() if view.result.earliest_date_for_full_payment else "") == expected.get("earliest_date_for_full_payment", "")),
+            ("spending_changes_needed", view.result.spending_changes_needed == expected.get("spending_changes_needed", "")),
+        ]
+        lines = ["AGENT RESULT", actual, "", "SAMPLE EXPECTED RESULT"]
+        for field, value in expected.items():
+            if field in {name for name, _ in comparisons}:
+                lines.append(f"{field}: {value}")
+        lines.extend(["", "COMPARISON"])
+        for field, matched in comparisons:
+            lines.append(f"- {field}: {'MATCH' if matched else 'MISMATCH'}")
+        overall = all(matched for _, matched in comparisons)
+        lines.extend(["", f"Overall: {'MATCH' if overall else 'MISMATCH'}"])
+        return "\n".join(lines), overall
+
+    @staticmethod
+    def _decimal_equal(actual: Decimal, expected: str) -> bool:
+        try:
+            return actual == Decimal(expected)
+        except Exception:
+            return False
 
     def _build_view(self, request_id: str) -> RecommendationView:
         context = self.index.get_request_context(request_id)
@@ -146,7 +215,7 @@ class BuyOrWaitTerminal:
     def _source_lines(self, view: RecommendationView) -> list[str]:
         context, profile = view.context, view.context.profile
         lines = [
-            f"- dataset/requests.csv -> request_id: {context.request.request_id}",
+            f"- dataset/{self.request_source_filename} -> request_id: {context.request.request_id}",
             f"- dataset/financial_profiles.csv -> user_id: {context.profile.user_id}",
         ]
         if view.forecast_event_ids:
@@ -220,39 +289,95 @@ def run_terminal(terminal: BuyOrWaitTerminal, input_fn: Callable[[str], str] = i
         output_fn(terminal.recommendation(value))
 
 
-def run_all(terminal: BuyOrWaitTerminal, output_fn: Callable[[str], None] = print) -> tuple[int, int, tuple[str, ...]]:
-    """Run every evaluation request without prompting and return summary counts."""
+def run_compare_terminal(
+    terminal: BuyOrWaitTerminal,
+    input_fn: Callable[[str], str] = input,
+    output_fn: Callable[[str], None] = print,
+) -> int:
+    """Interactive sample comparison loop; expected labels remain display-only."""
+    output_fn("BUY OR WAIT - SAMPLE COMPARISON")
+    output_fn("Enter a sample request ID. Type 'exit' to quit.")
+    while True:
+        try:
+            value = input_fn("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            output_fn("Goodbye.")
+            return 0
+        if not value:
+            output_fn("Enter a request ID or 'exit'.")
+            continue
+        if value.lower() in {"exit", "quit"}:
+            output_fn("Goodbye.")
+            return 0
+        text, _ = terminal.comparison(value)
+        output_fn(text)
+
+
+def run_all(
+    terminal: BuyOrWaitTerminal,
+    output_fn: Callable[[str], None] = print,
+    *,
+    compare: bool = False,
+) -> tuple[int, int, tuple[str, ...]]:
+    """Run every selected request and return summary counts.
+
+    In sample comparison mode the returned counts are match/mismatch counts;
+    otherwise they are successful/failed processing counts.
+    """
     successful = 0
     failures: list[str] = []
-    for request_id, text in terminal.all_recommendations():
+    matches = 0
+    mismatches: list[str] = []
+    request_ids = tuple(terminal.requests_by_id)
+    for request_id in request_ids:
+        if compare:
+            text, matched = terminal.comparison(request_id)
+            if matched:
+                matches += 1
+            else:
+                mismatches.append(request_id)
+        else:
+            text = terminal.recommendation(request_id)
         output_fn(text)
-        if text.startswith("Unable to process"):
+        if not compare and text.startswith("Unable to process"):
             failures.append(request_id)
         else:
-            successful += 1
+            if not compare:
+                successful += 1
     output_fn("=" * 50)
-    output_fn(f"Processed: {successful + len(failures)} requests")
-    output_fn(f"Successful: {successful}")
-    output_fn(f"Failed: {len(failures)}")
+    if compare:
+        output_fn(f"Requests processed: {len(request_ids)}")
+        output_fn(f"Matches: {matches}")
+        output_fn(f"Mismatches: {len(mismatches)}")
+        if mismatches:
+            output_fn("Mismatching request IDs: " + ", ".join(mismatches))
+    else:
+        output_fn(f"Processed: {successful + len(failures)} requests")
+        output_fn(f"Successful: {successful}")
+        output_fn(f"Failed: {len(failures)}")
     output_fn("=" * 50)
-    return successful, len(failures), tuple(failures)
+    return (matches, len(mismatches), tuple(mismatches)) if compare else (successful, len(failures), tuple(failures))
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Print one Buy or Wait recommendation per request ID.")
     parser.add_argument("--dataset-dir", type=Path, default=ROOT / "dataset", help="Challenge dataset directory.")
-    parser.add_argument("--all", action="store_true", help="Print independent recommendations for every evaluation request.")
+    parser.add_argument("--official", action="store_true", help="Use requests.csv instead of the default sample_requests.csv test set.")
+    parser.add_argument("--all", action="store_true", help="Print independent recommendations for every selected request.")
+    parser.add_argument("--compare", action="store_true", help="Compare sample results with labelled columns without using them as inputs.")
     parser.add_argument("--output", type=Path, help="Optional human-readable output file for --all; never replaces output.csv.")
     parser.add_argument("--debug", action="store_true", help="Append factual source/record diagnostics to recommendations.")
     args = parser.parse_args()
     try:
-        terminal = BuyOrWaitTerminal(args.dataset_dir, debug=args.debug)
+        if args.compare and args.official:
+            parser.error("--compare is available only with the sample request set")
+        terminal = BuyOrWaitTerminal(args.dataset_dir, debug=args.debug, sample_mode=not args.official)
         if not args.all:
             if args.output is not None:
                 parser.error("--output is supported only with --all")
-            return run_terminal(terminal)
+            return run_compare_terminal(terminal) if args.compare else run_terminal(terminal)
         blocks: list[str] = []
-        successful, failed, _ = run_all(terminal, output_fn=blocks.append)
+        successful, failed, _ = run_all(terminal, output_fn=blocks.append, compare=args.compare)
         text = "\n".join(blocks) + "\n"
         print(text, end="")
         if args.output is not None:

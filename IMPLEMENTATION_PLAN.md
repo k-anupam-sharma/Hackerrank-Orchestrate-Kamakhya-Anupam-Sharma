@@ -16,7 +16,6 @@ Use the standard library for the core (`csv`, `dataclasses`, `datetime`, `decima
 ├── dataset/                         # supplied, read only
 ├── output.csv                       # generated at runtime; not created until implementation
 ├── code/
-│   ├── main.py                      # CLI composition root
 │   ├── buy_or_wait/
 │   │   ├── __init__.py
 │   │   ├── constants.py
@@ -47,7 +46,7 @@ Use the standard library for the core (`csv`, `dataclasses`, `datetime`, `decima
 │   │   ├── test_output.py
 │   │   └── test_samples.py
 │   └── evaluation/
-│       ├── main.py                  # invokes sample/full evaluation only
+│       ├── evaluator_entrypoint.py  # compatibility wrapper for evaluate.py
 │       └── usage_report.md          # final-run report; populated at release
 └── .gitignore
 ```
@@ -546,7 +545,7 @@ Run these before packaging:
 
 ```bash
 python -m unittest discover -s code/tests -v
-python code/main.py --dataset-dir dataset --output-path output.csv
+python main.py --dataset-dir dataset --output-path output.csv
 python evaluate.py --output-path output.csv
 ```
 

@@ -104,27 +104,28 @@ Never commit `.env` or an API key. If the provider, model, or key is absent, una
 | Validate an output file | `python evaluate.py` |
 | Validate custom dataset/output paths | `python evaluate.py --dataset-dir path/to/dataset --output-path path/to/output.csv --report-path path/to/report.md` |
 
-`main.py` is the single solver entry point. `code/main.py` remains a compatibility entry point for the original starter layout; use the root command above for a portable clean-machine workflow.
+`main.py` is the sole public solver entry point. The implementation lives in `code/buy_or_wait/`; there is no second solver entry point under `code/`.
 
 ## Terminal request runner
 
-Use the terminal request runner to inspect real request decisions without changing the financial engine:
+Use the terminal request runner to inspect the labelled sample requests without changing the financial engine:
 
 ```bash
 python chat.py
 python chat.py --debug
 ```
 
-Enter one evaluation request ID, for example `request_67`. The runner independently calls the same `solve_request` pipeline used by the submission flow, prints one concise recommendation with automatic factual sources, and returns to the `>` prompt for another ID. There is no active conversation state, no natural-language follow-up mode, and no financial calculation in `chat.py`.
+Enter one sample request ID, for example `request_01`. The runner independently calls the same `solve_request` pipeline used by the submission flow, prints one concise recommendation with automatic factual sources, and returns to the `>` prompt for another ID. There is no active conversation state, no natural-language follow-up mode, and no financial calculation in `chat.py`. Only canonical request-input columns are loaded into the solver; labelled answer columns are isolated for `--compare` display.
 
-Process every evaluation request without prompting:
+Process every sample request without prompting:
 
 ```bash
 python chat.py --all
-python chat.py --all --output recommendations.txt
+python chat.py --all --compare
+python chat.py --all --compare --output sample_recommendations.txt
 ```
 
-`--output` writes human-readable recommendation blocks only; it never replaces official `output.csv`. The optional `--debug` flag appends factual source/record diagnostics to each block. It does not expose chain-of-thought. The request runner uses the real dataset and `solve_request` pipeline and does not ask an LLM to calculate money or make a recommendation.
+`chat.py` defaults to `dataset/sample_requests.csv` (currently 25 requests) for temporary testing. `--compare` shows the independently generated result beside the sample labels and never feeds labels into the solver. `--all` processes every request in the selected set; `--output` writes human-readable blocks only and never replaces official `output.csv`. Use `--official` to inspect `dataset/requests.csv` through the same presentation layer. The optional `--debug` flag appends factual source/record diagnostics to each block. It does not expose chain-of-thought. The official solver remains `python main.py` and always uses `dataset/requests.csv` by default.
 
 ## Repository layout
 
