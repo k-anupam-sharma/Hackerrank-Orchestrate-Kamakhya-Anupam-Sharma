@@ -99,3 +99,34 @@ class ExchangeRate:
 @dataclass(frozen=True)
 class OutputTemplateRow:
     request_id: str
+
+
+@dataclass(frozen=True)
+class NormalizedEvent:
+    """A source event annotated for later forecasting, without changing source facts."""
+
+    event_id: str
+    user_id: str
+    effective_date: date
+    event_date: date
+    settlement_date: date | None
+    amount: Money | None
+    currency: str
+    amount_in_home_currency: Money | None
+    home_currency: str
+    conversion_date: date | None
+    conversion_status: str
+    event_type: str
+    event_kind: str
+    category: str
+    direction: str
+    status: str
+    linked_event_id: str | None
+    lifecycle_role: str
+    cash_treatment: str
+    is_recurring: bool
+    is_flexible: bool
+    flexibility: str
+    minimum_allowed_amount: Money | None
+    source: str
+    description: str
