@@ -161,3 +161,39 @@ class EvidenceCandidate:
     effective_date: date | None = None
     confidence: Decimal = Decimal("0")
     rationale: str = ""
+
+
+@dataclass(frozen=True)
+class ScheduledPayment:
+    payment_date: date
+    amount: Money
+    source_id: str = "proposed_payment"
+
+
+@dataclass(frozen=True)
+class SpendingChange:
+    """A future-only stop/reduction applied to a recurring source event."""
+
+    event_id: str
+    action: str
+    effective_date: date
+    new_amount: Money | None = None
+
+
+@dataclass(frozen=True)
+class ForecastDay:
+    forecast_date: date
+    opening_balance: Money
+    event_delta: Money
+    payment_delta: Money
+    closing_balance: Money
+    source_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class BalanceForecast:
+    request_date: date
+    horizon_end: date
+    minimum_balance_to_keep: Money
+    days: tuple[ForecastDay, ...]
+    ignored_event_ids: tuple[str, ...]
