@@ -8,6 +8,7 @@ from .capacity import calculate_amount_safe_to_pay, find_earliest_safe_full_paym
 from .plans import PlanGenerator, PlanValidator
 from .spending_changes import SpendingChangeEngine
 from .ranking import choose_best_plan, map_plan_to_recommendation
+from .solver import solve_all_requests, solve_dataset, solve_request, validate_output_csv
 
 __all__ = [
     "DatasetIndex", "DatasetValidationError", "RequestContext", "load_dataset",
@@ -18,4 +19,5 @@ __all__ = [
     "PlanGenerator", "PlanValidator",
     "SpendingChangeEngine",
     "choose_best_plan", "map_plan_to_recommendation",
+    "solve_request", "solve_all_requests", "solve_dataset", "validate_output_csv",
 ]
