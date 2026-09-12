@@ -106,6 +106,17 @@ Never commit `.env` or an API key. If the provider, model, or key is absent, una
 
 `main.py` is the single solver entry point. `code/main.py` remains a compatibility entry point for the original starter layout; use the root command above for a portable clean-machine workflow.
 
+## Interactive testing chatbot
+
+Use the terminal chatbot to inspect real request decisions without changing the financial engine:
+
+```bash
+python chat.py
+python chat.py --debug
+```
+
+Type `list` to see evaluation request IDs, then `select request_26` (or enter an ID directly). After selection, use `summary`, `forecast`, `plan`, `explanation`, or ask a supported plain-language question such as “How much can I safely pay today?” The `--debug` mode shows source-backed events/facts, candidate plans, rejection reasons, and the selected plan; it does not expose chain-of-thought. The chatbot uses the same dataset and `solve_request` pipeline as the submission runner and does not ask an LLM to calculate money or make a recommendation.
+
 ## Repository layout
 
 ```text
