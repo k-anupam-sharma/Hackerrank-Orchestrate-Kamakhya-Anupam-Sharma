@@ -217,3 +217,11 @@ class PlanValidationResult:
     completes_by_deadline: bool
     errors: tuple[str, ...]
     forecast: BalanceForecast | None
+
+
+@dataclass(frozen=True)
+class SpendingChangeCandidate:
+    """A bounded, source-backed intervention that makes one payment schedule safe."""
+
+    changes: tuple[SpendingChange, ...]
+    forecast: BalanceForecast

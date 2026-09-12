@@ -6,6 +6,7 @@ from .evidence import EvidenceProcessor, extract_image_facts, extract_message_fa
 from .forecast import forecast_balance, get_minimum_projected_balance, is_plan_safe
 from .capacity import calculate_amount_safe_to_pay, find_earliest_safe_full_payment_date
 from .plans import PlanGenerator, PlanValidator
+from .spending_changes import SpendingChangeEngine
 
 __all__ = [
     "DatasetIndex", "DatasetValidationError", "RequestContext", "load_dataset",
@@ -14,4 +15,5 @@ __all__ = [
     "forecast_balance", "get_minimum_projected_balance", "is_plan_safe",
     "calculate_amount_safe_to_pay", "find_earliest_safe_full_payment_date",
     "PlanGenerator", "PlanValidator",
+    "SpendingChangeEngine",
 ]
