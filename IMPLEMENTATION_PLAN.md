@@ -547,7 +547,7 @@ Run these before packaging:
 ```bash
 python -m unittest discover -s code/tests -v
 python code/main.py --dataset-dir dataset --output-path output.csv
-python code/evaluation/main.py --validate-output output.csv
+python evaluate.py --output-path output.csv
 ```
 
 The release validator verifies 250 rows, exact header/order, unique request IDs, allowed enums, money bounds, plan chronology/sums, option equality, date/deadline compliance, allowable changes, and no simulated floor breach. If an optional LLM was used for the final evidence/explanation run, populate `evaluation/usage_report.md` from recorded provider/model/call/token/cost metrics; otherwise report zero model calls explicitly.

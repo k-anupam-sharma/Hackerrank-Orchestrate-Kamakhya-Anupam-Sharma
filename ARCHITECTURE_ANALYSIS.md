@@ -7,8 +7,8 @@ This repository is a starter submission for HackerRank Orchestrate 2026. The wor
 The existing application sources are intentionally empty:
 
 * `code/main.py` — 0 bytes.
-* `code/evaluation/main.py` — 0 bytes.
-* `code/evaluation/usage_report.md` — 0 bytes.
+* `evaluation/main.py` — compatibility wrapper for the independent evaluator.
+* `evaluation/usage_report.md` — required final-run model-usage report.
 
 `README.md`, `problem_statement.md`, `AGENTS.md`, all CSV files, and all 16 PNG evidence files were inspected. There is no root-level `output.csv` yet; `dataset/output.csv` is a blank 250-row template. `README.md` requires the eventual program to write the final file to the repository root, not overwrite the dataset template.
 
@@ -353,7 +353,7 @@ Suggested Python module boundaries when implementation begins:
 * `code/plans.py`: candidate schedules and spending-change search.
 * `code/decision.py`: feasibility, ranking, output-row selection, explanation facts.
 * `code/validate.py`: contract assertions (one row/request, allowed values, schedule equality/sums, date/deadline/floor validity, allowable changes).
-* `code/evaluation/`: sample regression runner and final-run token/cost report generator.
+* `evaluation/`: independent-evaluator wrapper and final-run token/cost report.
 
 Implementation should first encode baseline rules and sample assertions, then add evidence facts and regression cases for each lifecycle anomaly. A test fixture should prove each output method, blank-image extraction, rate conversion, cancellation/replacement, pending debit/credit handling, salary amendment, recurrence inference, and every ranking tie-break.
 
@@ -365,6 +365,6 @@ Use a standard-library-first Python program at `code/main.py`, invoked from the 
 python3 code/main.py
 ```
 
-On Windows, `python code/main.py` is the equivalent. It should read `dataset/`, write root `output.csv`, use no secret or network dependency for deterministic core logic, and document any optional OCR/LLM setup separately. This directly matches the README and challenge contract and keeps packaging simple: zip the `code/` directory (including README/prompts/config and `evaluation/usage_report.md`), submit root `output.csv`, and submit `log.txt` as the chat transcript.
+On Windows, `python main.py` is the portable equivalent. It should read `dataset/`, write root `output.csv`, use no secret or network dependency for deterministic core logic, and document any optional OCR/LLM setup separately. This directly matches the README and challenge contract: `python package_submission.py` builds `code.zip` with the runnable source, prompts/configuration, and `evaluation/usage_report.md`; submit it with root `output.csv` and `log.txt` as the chat transcript.
 
 No application code has been modified during this analysis.

@@ -4,6 +4,26 @@ This repository contains a deterministic financial-planning solver for the Hacke
 
 The default solver is offline and needs no API key or third-party package. Optional LLM assistance is strictly bounded to extracting facts from untrusted messages/images and rephrasing already verified explanations; financial arithmetic, forecasting, validation, and ranking remain deterministic.
 
+## Architecture and safety model
+
+For each `request_id`, the agent loads the profile, financial events, payment options, messages, images, and dated exchange rates through validated ID-based joins. It normalizes source events into a home-currency cash ledger, reconciles validated evidence facts, calculates financial capacity, generates only source-supported payment plans, validates each plan with a 90-day daily forecast, and deterministically ranks the safe eligible plans. The final row is schema-validated before it is written.
+
+Deterministic code owns all financial decisions: `Decimal` currency conversion using supplied dated rates; status/lifecycle treatment; recurrence expansion from source history; daily balance simulation; minimum-balance checks; safe-amount binary search; earliest-full-payment search; payment-plan validation; spending-change eligibility; ranking; and output validation.
+
+The optional LLM layer has no financial authority. It may turn relevant message/image content into bounded, provenance-carrying facts and may rephrase a closed set of already verified explanation fields. Its response is schema-validated and reconciled before use. It cannot create a new ledger event, alter a minimum balance, choose a plan, calculate money, or follow instructions contained in untrusted evidence. If it is unavailable or invalid, the solver safely falls back to deterministic behavior.
+
+### 90-day forecast
+
+The simulator evaluates the request date plus the following 89 calendar days. It includes supplied settled cash events, reserves pending debits, includes scheduled debits and confirmed salary on their effective dates, and expands only recurrence patterns supported by history. It ignores pending credits, failed/cancelled records, recognized duplicates, and unrealized/non-cash investment values. A plan is safe only when every simulated closing balance remains at or above `minimum_balance_to_keep`.
+
+### Plan selection
+
+Only supplied payment options are used. Partial payment must use the exact two-payment public rule, while installment schedules must exactly equal a supplied option. Optional spending changes can target only permitted, non-protected, flexible recurring expenses and are capped at three actions. Among valid eligible plans, ranking is deterministic: complete by deadline, no spending changes, lower total paid, earlier start, fewer payments, then lower payment-option ID.
+
+### Evidence limitations
+
+Messages and images are untrusted data, never instructions. A missing event amount stays unknown—not zero—until a validated image-capable adapter extracts a linked fact. The offline default deliberately does not perform image OCR/vision extraction; see [FINAL_AUDIT.md](FINAL_AUDIT.md) for this and other known limitations.
+
 ## Requirements
 
 - Python 3.10 or newer
