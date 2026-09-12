@@ -130,3 +130,34 @@ class NormalizedEvent:
     minimum_allowed_amount: Money | None
     source: str
     description: str
+
+
+@dataclass(frozen=True)
+class EvidenceFact:
+    """A bounded claim extracted from untrusted message or image content."""
+
+    fact_type: str
+    user_id: str
+    source_id: str
+    source_kind: str
+    source_timestamp: datetime | None
+    related_event_id: str | None
+    related_request_id: str | None
+    amount: Money | None
+    currency: str | None
+    effective_date: date | None
+    confidence: Decimal
+    rationale: str
+
+
+@dataclass(frozen=True)
+class EvidenceCandidate:
+    """Untrusted adapter output, validated before becoming an EvidenceFact."""
+
+    fact_type: str
+    related_event_id: str | None = None
+    amount: Money | None = None
+    currency: str | None = None
+    effective_date: date | None = None
+    confidence: Decimal = Decimal("0")
+    rationale: str = ""
