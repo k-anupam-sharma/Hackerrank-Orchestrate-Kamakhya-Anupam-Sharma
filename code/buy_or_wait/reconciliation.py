@@ -14,9 +14,9 @@ from .normalization import CurrencyConversionError, convert_to_home_currency
 def reconcile_evidence_facts(index, user_id: str, events: Sequence[NormalizedEvent], facts: Sequence[EvidenceFact]) -> tuple[NormalizedEvent, ...]:
     """Return evidence-amended records without inventing a new event or payment option.
 
-    Per the challenge order, an explicit cancellation wins first; otherwise the
-    newest applicable amendment/delay from the same source ordering is used.
-    Facts with no linked source event remain provenance for explanations only.
+    Conflict order is explicit: terminal cancellation/settlement/amendment facts;
+    newest record per source; settled records over estimates/forecasts; then the
+    financially safer remaining amount/date. Facts never create a new event.
     """
     by_event: dict[str, list[EvidenceFact]] = {}
     for fact in facts:
@@ -28,13 +28,20 @@ def reconcile_evidence_facts(index, user_id: str, events: Sequence[NormalizedEve
         if not related:
             reconciled.append(event)
             continue
-        if any(fact.fact_type == "event_cancelled" for fact in related):
+        latest = _latest_per_source(related)
+        if any(fact.fact_type == "event_cancelled" for fact in latest):
             reconciled.append(replace(event, status="cancelled", cash_treatment="excluded_cancelled", source="financial_events.csv+evidence"))
             continue
         current = event
-        amendments = [fact for fact in related if fact.fact_type in {"event_amount", "event_amount_amended", "income_confirmed"} and fact.amount is not None]
+        if any(fact.fact_type == "event_settled" for fact in latest):
+            current = replace(current, status="settled", cash_treatment="settled_cash", source="financial_events.csv+evidence")
+        # Existing settled structured records remain preferred to an estimate or
+        # forecast. An explicit amount amendment is a higher-priority fact.
+        if current.status in {"unrealized", "forecast", "estimated"} and event.status == "settled":
+            current = event
+        amendments = [fact for fact in latest if fact.fact_type in {"event_amount", "event_amount_amended", "income_confirmed"} and fact.amount is not None]
         if amendments:
-            amendment = max(amendments, key=_fact_order)
+            amendment = _safer_amount_fact(amendments, current.direction)
             currency = amendment.currency or current.currency
             settlement = current.settlement_date or current.effective_date
             home_amount, conversion_status = _home_amount(index, amendment.amount, currency, current.home_currency, settlement)
@@ -44,9 +51,9 @@ def reconcile_evidence_facts(index, user_id: str, events: Sequence[NormalizedEve
                 cash_treatment="scheduled_cash" if amendment.fact_type == "income_confirmed" else current.cash_treatment,
                 source="financial_events.csv+evidence",
             )
-        delays = [fact for fact in related if fact.fact_type == "payment_delayed" and fact.effective_date is not None]
+        delays = [fact for fact in latest if fact.fact_type == "payment_delayed" and fact.effective_date is not None]
         if delays:
-            delay = max(delays, key=_fact_order)
+            delay = _safer_date_fact(delays, current.direction)
             current = replace(current, effective_date=delay.effective_date, settlement_date=delay.effective_date, source="financial_events.csv+evidence")
         reconciled.append(current)
     return tuple(sorted(reconciled, key=lambda event: (event.effective_date, event.event_id)))
@@ -54,6 +61,30 @@ def reconcile_evidence_facts(index, user_id: str, events: Sequence[NormalizedEve
 
 def _fact_order(fact: EvidenceFact) -> tuple[datetime, str]:
     return (fact.source_timestamp or datetime.min.replace(tzinfo=timezone.utc), fact.source_id)
+
+
+def _latest_per_source(facts: Sequence[EvidenceFact]) -> tuple[EvidenceFact, ...]:
+    latest: dict[str, EvidenceFact] = {}
+    for fact in facts:
+        origin = fact.source_origin or fact.source_kind or fact.source_id
+        prior = latest.get(origin)
+        if prior is None or _fact_order(fact) > _fact_order(prior):
+            latest[origin] = fact
+    return tuple(latest.values())
+
+
+def _safer_amount_fact(facts: Sequence[EvidenceFact], direction: str) -> EvidenceFact:
+    """For unresolved claims, reserve more for debits and count less for credits."""
+    assert all(fact.amount is not None for fact in facts)
+    key = lambda fact: (fact.amount, _fact_order(fact))
+    return max(facts, key=key) if direction == "debit" else min(facts, key=key)
+
+
+def _safer_date_fact(facts: Sequence[EvidenceFact], direction: str) -> EvidenceFact:
+    """For unresolved claims, debit earlier and credit later."""
+    assert all(fact.effective_date is not None for fact in facts)
+    key = lambda fact: (fact.effective_date, _fact_order(fact))
+    return min(facts, key=key) if direction == "debit" else max(facts, key=key)
 
 
 def _home_amount(index, amount: Decimal, currency: str, home_currency: str, settlement_date) -> tuple[Decimal | None, str]:

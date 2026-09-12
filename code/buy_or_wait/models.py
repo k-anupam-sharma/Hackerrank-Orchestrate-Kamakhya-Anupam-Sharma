@@ -148,6 +148,7 @@ class EvidenceFact:
     effective_date: date | None
     confidence: Decimal
     rationale: str
+    source_origin: str = ""
 
 
 @dataclass(frozen=True)

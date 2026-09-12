@@ -19,6 +19,7 @@ ALLOWED_FACT_TYPES = frozenset({
     "event_amount",
     "payment_delayed",
     "income_confirmed",
+    "event_settled",
 })
 CURRENCIES = frozenset({"INR", "ZAR", "IDR", "USD", "EUR"})
 _CURRENCY_AMOUNT = re.compile(r"\b(INR|ZAR|IDR|USD|EUR)\s*([0-9][0-9,]*(?:\.[0-9]+)?)\b", re.I)
@@ -72,6 +73,8 @@ def deterministic_message_candidates(message: Message) -> tuple[EvidenceCandidat
     candidates: list[EvidenceCandidate] = []
     if message.related_event_id and ("cancelled" in text or "canceled" in text):
         candidates.append(EvidenceCandidate("event_cancelled", message.related_event_id, confidence=Decimal("0.90"), rationale="explicit cancellation wording"))
+    if message.related_event_id and "settled" in text:
+        candidates.append(EvidenceCandidate("event_settled", message.related_event_id, confidence=Decimal("0.85"), rationale="explicit settlement wording"))
     amount = _amount_and_currency(message.message_text)
     if message.related_event_id and amount and any(word in text for word in ("amended", "updated", "revised", "changed")):
         candidates.append(EvidenceCandidate("event_amount_amended", message.related_event_id, amount[0], amount[1], confidence=Decimal("0.80"), rationale="explicit amended amount"))
@@ -91,6 +94,7 @@ def _validate_candidate(
     user_id: str,
     request_id: str | None,
     source_timestamp: object,
+    source_origin: str,
     allowed_event_id: str | None,
     index: DatasetIndex,
 ) -> EvidenceFact:
@@ -125,6 +129,7 @@ def _validate_candidate(
         effective_date=candidate.effective_date,
         confidence=candidate.confidence,
         rationale=candidate.rationale,
+        source_origin=source_origin,
     )
 
 
@@ -134,10 +139,14 @@ def extract_message_facts(
     """Extract and validate message facts; message text never acts as executable policy."""
     candidates = list(deterministic_message_candidates(message))
     if adapter is not None:
-        candidates.extend(adapter.extract_message(message))
+        candidates.extend(
+            candidate for candidate in adapter.extract_message(message)
+            if candidate.fact_type not in ALLOWED_FACT_TYPES or _grounded_in_message(candidate, message)
+        )
     return tuple(_validate_candidate(
         candidate, source_id=message.message_id, source_kind="message", user_id=message.user_id,
-        request_id=message.request_id, source_timestamp=message.sent_at, allowed_event_id=None, index=index,
+        request_id=message.request_id, source_timestamp=message.sent_at, source_origin=message.source_type,
+        allowed_event_id=None, index=index,
     ) for candidate in candidates)
 
 
@@ -152,8 +161,27 @@ def extract_image_facts(
     candidates = () if adapter is None else adapter.extract_image(image.path, linked_event)
     return tuple(_validate_candidate(
         candidate, source_id=image.image_id, source_kind="image", user_id=image.user_id,
-        request_id=image.request_id, source_timestamp=None, allowed_event_id=linked_event.event_id, index=index,
+        request_id=image.request_id, source_timestamp=None, source_origin="image",
+        allowed_event_id=linked_event.event_id, index=index,
     ) for candidate in candidates)
+
+
+def _grounded_in_message(candidate: EvidenceCandidate, message: Message) -> bool:
+    """Conservative content checks prevent a model from turning instructions into facts."""
+    text = message.message_text.lower()
+    if candidate.related_event_id != message.related_event_id and candidate.fact_type != "income_confirmed":
+        return False
+    if candidate.fact_type == "event_cancelled":
+        return ("cancelled" in text or "canceled" in text) and "cancel all" not in text
+    if candidate.fact_type == "event_settled":
+        return "settled" in text
+    if candidate.fact_type == "event_amount_amended":
+        return _amount_and_currency(message.message_text) is not None and any(word in text for word in ("amended", "updated", "revised", "changed"))
+    if candidate.fact_type == "payment_delayed":
+        return _date_from_text(message.message_text) is not None and any(word in text for word in ("delayed", "expected", "rescheduled", "replaces"))
+    if candidate.fact_type == "income_confirmed":
+        return _amount_and_currency(message.message_text) is not None and "confirmed" in text and any(word in text for word in ("salary", "payroll", "income"))
+    return candidate.fact_type == "event_amount" and _amount_and_currency(message.message_text) is not None
 
 
 @dataclass(frozen=True)
