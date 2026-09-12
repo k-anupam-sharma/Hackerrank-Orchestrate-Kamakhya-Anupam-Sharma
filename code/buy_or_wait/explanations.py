@@ -33,6 +33,7 @@ class ExplanationFacts:
             "payment_plan": self.recommendation.payment_plan,
             "spending_changes_needed": self.recommendation.spending_changes_needed,
             "earliest_date_for_full_payment": "" if self.earliest_full_payment_date is None else self.earliest_full_payment_date.isoformat(),
+            "forecast_horizon_days": "90",
         }
         for index, event in enumerate(self.confirmed_income):
             fields[f"confirmed_income_{index}_amount"] = _money(event.amount_in_home_currency or Decimal("0"))
