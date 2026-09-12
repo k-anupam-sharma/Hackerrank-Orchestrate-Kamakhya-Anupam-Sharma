@@ -115,7 +115,7 @@ python chat.py
 python chat.py --debug
 ```
 
-Enter one sample request ID, for example `request_01`. The runner independently calls the same `solve_request` pipeline used by the submission flow and prints exactly the 15 fields, in public-schema order, one per line with no labels or headings. It then returns to the `>` prompt for another ID. Use `--csv` when a comma-separated record is required. There is no active conversation state, no natural-language follow-up mode, and no financial calculation in `chat.py`. Only canonical request-input columns are loaded into the solver; labelled answer columns are isolated for `--compare` display.
+Enter one sample request ID, for example `request_01`. The runner independently calls the same `solve_request` pipeline used by the submission flow and prints one concise labeled `REQUEST` / `AGENT DECISION` / `SOURCES` block. It then returns to the `>` prompt for another ID. Use `--csv` when a comma-separated record is required. There is no active conversation state, no natural-language follow-up mode, and no financial calculation in `chat.py`. Only canonical request-input columns are loaded into the solver; labelled answer columns are isolated for `--compare` display.
 
 Process every sample request without prompting:
 

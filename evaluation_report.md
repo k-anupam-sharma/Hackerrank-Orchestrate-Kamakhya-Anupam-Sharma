@@ -5,10 +5,10 @@
 
 ## Status counts
 
-- `affordable_later`: 44
-- `affordable_now`: 65
+- `affordable_later`: 45
+- `affordable_now`: 62
 - `affordable_with_plan`: 69
-- `not_affordable`: 72
+- `not_affordable`: 74
 
 ## Failures by category
 

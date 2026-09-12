@@ -68,7 +68,11 @@ class NormalizationTests(unittest.TestCase):
         self.assertTrue(grocery_by_description["Supermarket basket"])
         self.assertFalse(grocery_by_description["Grocery delivery"])
         self.assertTrue(rent and all(item.is_recurring for item in rent))
-        self.assertTrue(flexible_dining and all(item.is_recurring for item in flexible_dining))
+        self.assertTrue(flexible_dining)
+        # Flexible spending remains eligible for a change only when one
+        # stable stream is actually evidenced; changing dining descriptions
+        # are not projected as one fixed recurring charge.
+        self.assertFalse(any(item.is_recurring for item in flexible_dining))
 
     def test_pending_and_unrealized_events_are_distinguished(self) -> None:
         pending = next(item for item in normalize_user_events(self.index, "user_01") if item.event_id == "event_102")
@@ -80,6 +84,11 @@ class NormalizationTests(unittest.TestCase):
         )
         self.assertEqual("investment_valuation", valuation.event_kind)
         self.assertEqual("excluded_non_cash_or_unrealized", valuation.cash_treatment)
+
+    def test_scheduled_commitment_uses_planned_event_date(self) -> None:
+        event = next(item for item in normalize_user_events(self.index, "user_04") if item.event_id == "event_357")
+        self.assertEqual(date(2024, 6, 4), event.effective_date)
+        self.assertEqual(date(2024, 6, 11), event.settlement_date)
 
     def test_debug_timeline_is_human_readable(self) -> None:
         timeline = normalize_user_events(self.index, "user_01")[:3]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import sys
 import unittest
+from decimal import Decimal
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -31,16 +32,18 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(250, len(self.official.requests_by_id))
 
     def test_sample_request_01_and_request_25_lookup(self) -> None:
-        self.assertEqual(15, len(self.sample.recommendation("request_01").splitlines()))
-        self.assertEqual(15, len(self.sample.recommendation("request_25").splitlines()))
+        self.assertIn("REQUEST", self.sample.recommendation("request_01"))
+        self.assertIn("AGENT DECISION", self.sample.recommendation("request_25"))
         self.assertEqual("Request ID not found: request_26", self.sample.recommendation("request_26"))
 
-    def test_default_record_is_one_field_per_line_and_csv_mode_is_explicit(self) -> None:
-        lines = self.sample.recommendation("request_01").splitlines()
-        self.assertEqual(15, len(lines))
+    def test_default_record_is_labeled_and_csv_mode_is_explicit(self) -> None:
+        text = self.sample.recommendation("request_01")
+        self.assertIn("Request ID: request_01", text)
+        self.assertIn("Safe to pay now:", text)
+        self.assertIn("SOURCES", text)
         csv_values = next(csv.reader([self.sample.recommendation("request_01", csv_mode=True)]))
         self.assertEqual(15, len(csv_values))
-        self.assertEqual(lines[0], csv_values[0])
+        self.assertEqual("request_01", csv_values[0])
 
     def test_csv_header_has_exact_required_order(self) -> None:
         self.assertEqual(
@@ -92,19 +95,36 @@ class TerminalTests(unittest.TestCase):
         self.assertIn("Mismatching fields:", output)
         self.assertTrue(any(item.startswith("- request_01:") for item in output))
 
+    def test_all_sample_structured_results_are_independent_and_request01_matches(self) -> None:
+        expected = self.sample._load_sample_expected(ROOT / "dataset")
+        for request_id in self.sample.requests_by_id:
+            with self.subTest(request_id=request_id):
+                view = self.sample._build_view(request_id)
+                values = self.sample._record_values(view)
+                self.assertEqual(request_id, values["request_id"])
+                self.assertGreaterEqual(Decimal(values["amount_safe_to_pay"]), Decimal("0"))
+                self.assertLessEqual(Decimal(values["amount_safe_to_pay"]), view.context.request.requested_amount)
+        # Oracle labels are consulted only after the independent result exists;
+        # this guards the primary diagnosed case without leaking labels into
+        # Request construction or the solver call.
+        actual = self.sample._record_values(self.sample._build_view("request_01"))
+        oracle = expected["request_01"]
+        for field in ("amount_safe_to_pay", "affordability_status", "recommended_payment_method", "payment_plan", "earliest_date_for_full_payment", "spending_changes_needed"):
+            self.assertTrue(self.sample._field_equal(field, actual[field], oracle[field]), field)
+
     def test_consecutive_sample_requests_are_independent(self) -> None:
         ids = ("request_01", "request_02", "request_10", "request_20", "request_25")
         texts = [self.sample.recommendation(request_id) for request_id in ids]
         for request_id, text in zip(ids, texts):
-            self.assertEqual(request_id, text.splitlines()[0])
-            self.assertEqual(15, len(text.splitlines()))
-        self.assertNotEqual(texts[1].splitlines()[0], "request_01")
+            self.assertIn(f"Request ID: {request_id}", text)
+            self.assertIn("AGENT DECISION", text)
+        self.assertIn("Request ID: request_02", texts[1])
 
     def test_runner_accepts_request_ids_and_exit_without_chat_prompts(self) -> None:
         inputs = iter(("request_01", "request_999", "exit"))
         output: list[str] = []
         self.assertEqual(0, run_terminal(self.sample, input_fn=lambda _prompt: next(inputs), output_fn=output.append))
-        self.assertTrue(any(item.splitlines()[0] == "request_01" for item in output if item.splitlines()))
+        self.assertTrue(any("Request ID: request_01" in item for item in output))
         self.assertIn("Request ID not found: request_999", output)
         self.assertFalse(any("What would you like to ask" in item for item in output))
 

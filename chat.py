@@ -13,7 +13,7 @@ import io
 import re
 import sys
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Callable, Iterable
@@ -25,10 +25,11 @@ if str(CODE_DIR) not in sys.path:
     sys.path.insert(0, str(CODE_DIR))
 
 from buy_or_wait.evidence import EvidenceProcessor, model_adapter_from_environment  # noqa: E402
-from buy_or_wait.forecast import forecast_balance  # noqa: E402
+from buy_or_wait.forecast import forecast_balance, get_minimum_projected_balance  # noqa: E402
 from buy_or_wait.loaders import DatasetIndex, RequestContext, load_dataset  # noqa: E402
 from buy_or_wait.models import PaymentPlan, ScheduledPayment, SpendingChange  # noqa: E402
 from buy_or_wait.normalization import normalize_user_events  # noqa: E402
+from buy_or_wait.plans import PlanGenerator, PlanValidator  # noqa: E402
 from buy_or_wait.reconciliation import reconcile_evidence_facts  # noqa: E402
 from buy_or_wait.solver import SolvedRequest, solve_request  # noqa: E402
 
@@ -63,6 +64,7 @@ class RecommendationView:
     normalized_events: tuple
     forecast_event_ids: tuple[str, ...]
     converted_rate_keys: tuple[tuple[date, str, str], ...]
+    forecast: object
 
 
 class BuyOrWaitTerminal:
@@ -97,9 +99,9 @@ class BuyOrWaitTerminal:
     def recommendation(self, request_id: str, *, csv_mode: bool = False) -> str:
         """Return one independent record without changing solver behavior.
 
-        The default terminal format is exactly one field per line, in the
-        public 15-field order.  ``csv_mode`` is retained for batch and machine
-        consumers; both formats are serialized from the same solved record.
+        The default terminal format is a concise labeled recommendation block.
+        ``csv_mode`` is retained for batch and machine consumers; both formats
+        are serialized from the same solved record.
         """
         request_id = request_id.strip()
         if request_id not in self.requests_by_id:
@@ -108,7 +110,7 @@ class BuyOrWaitTerminal:
             view = self._build_view(request_id)
         except Exception as exc:
             return f"Unable to process {request_id}: {type(exc).__name__}: {exc}"
-        text = self._csv_line(view) if csv_mode else self._line_record(view)
+        text = self._csv_line(view) if csv_mode else self._format_view(view)
         return text if not self.debug else text + "\n" + self._format_debug(view)
 
     def all_recommendations(self) -> Iterable[tuple[str, str]]:
@@ -163,6 +165,31 @@ class BuyOrWaitTerminal:
         if field in {"requested_amount", "amount_safe_to_pay"}:
             try:
                 return Decimal(actual) == Decimal(expected)
+            except Exception:
+                return False
+        if field == "payment_plan":
+            if actual == expected == "none":
+                return True
+            try:
+                def parse(value: str):
+                    return tuple((date.fromisoformat(token.split(":", 1)[0]), Decimal(token.split(":", 1)[1])) for token in value.split("|"))
+                return parse(actual) == parse(expected)
+            except Exception:
+                return False
+        if field == "spending_changes_needed":
+            if actual == expected:
+                return True
+            try:
+                def parse_change(value: str):
+                    parsed = []
+                    for token in value.split("|"):
+                        parts = token.split(":")
+                        if parts[0] == "reduce_to":
+                            parsed.append((parts[0], parts[1], Decimal(parts[2])))
+                        else:
+                            parsed.append(tuple(parts))
+                    return tuple(parsed)
+                return parse_change(actual) == parse_change(expected)
             except Exception:
                 return False
         if field == "allows_partial_payment":
@@ -242,31 +269,39 @@ class BuyOrWaitTerminal:
                 key = (event.conversion_date, event.currency, event.home_currency)
                 if key not in rates:
                     rates.append(key)
-        return RecommendationView(context, result, facts, normalized, tuple(event_ids), tuple(rates))
+        return RecommendationView(context, result, facts, normalized, tuple(event_ids), tuple(rates), forecast)
 
     def _format_view(self, view: RecommendationView) -> str:
         request, profile, result = view.context.request, view.context.profile, view.result
         lines = [
             LINE,
-            f"Recommendation for {request.request_id}",
+            "REQUEST",
+            LINE,
+            f"Request ID: {request.request_id}",
+            f"User ID: {request.user_id}",
+            f"Request Date: {request.request_date.isoformat()}",
+            f"Request Type: {request.request_type}",
+            f"Requested Amount: {_money(request.requested_amount, profile.home_currency)}",
+            f"Desired Completion Date: {request.desired_completion_date.isoformat()}",
+            f"Allows Partial Payment: {str(request.allows_partial_payment).lower()}",
+            f"Request: {request.request_text}",
             "",
-            "Request:",
-            request.request_text,
-            "",
-            f"Requested: {_money(request.requested_amount, profile.home_currency)}",
-            f"Deadline: {request.desired_completion_date.isoformat()}",
-            "",
+            LINE,
+            "AGENT DECISION",
+            LINE,
             f"Safe to pay now: {_money(result.amount_safe_to_pay, profile.home_currency)}",
-            f"Decision: {result.affordability_status}",
-            f"Recommended method: {result.recommended_payment_method}",
-            f"Plan: {result.payment_plan}",
-            f"Earliest safe full payment: {_date_text(result.earliest_date_for_full_payment)}",
-            f"Spending changes: {result.spending_changes_needed}",
+            f"Affordability Status: {result.affordability_status}",
+            f"Recommended Payment Method: {result.recommended_payment_method}",
+            f"Payment Plan: {result.payment_plan}",
+            f"Earliest Date for Full Payment: {_date_text(result.earliest_date_for_full_payment)}",
+            f"Spending Changes Needed: {result.spending_changes_needed}",
             "",
-            "Why:",
+            "Decision Explanation:",
             result.decision_explanation,
             "",
-            "Sources:",
+            LINE,
+            "SOURCES",
+            LINE,
             *self._source_lines(view),
             LINE,
         ]
@@ -280,8 +315,9 @@ class BuyOrWaitTerminal:
         ]
         if view.forecast_event_ids:
             lines.append("- dataset/financial_events.csv -> event_id: " + ", ".join(view.forecast_event_ids))
-        if context.payment_options:
-            lines.append("- dataset/request_payment_options.csv -> payment_option_id: " + ", ".join(option.payment_option_id for option in context.payment_options))
+        relevant_options = self._matching_payment_options(view)
+        if relevant_options:
+            lines.append("- dataset/request_payment_options.csv -> payment_option_id: " + ", ".join(relevant_options))
         if view.converted_rate_keys:
             rendered = ", ".join(f"{when.isoformat()} {source}->{target}" for when, source, target in view.converted_rate_keys)
             lines.append(f"- dataset/exchange_rates.csv -> {rendered}")
@@ -293,18 +329,81 @@ class BuyOrWaitTerminal:
             lines.append("- dataset/images.csv / dataset/media/images -> image_id: " + ", ".join(fact.source_id for fact in image_facts))
         return lines
 
+    @staticmethod
+    def _matching_payment_options(view: RecommendationView) -> tuple[str, ...]:
+        """Return only supplied options whose exact schedule is selected."""
+        result = view.result
+        if result.recommended_payment_method not in {"full_payment", "installments"}:
+            return ()
+        if result.payment_plan == "none":
+            return ()
+        wanted = []
+        for token in result.payment_plan.split("|"):
+            when, amount = token.split(":", 1)
+            wanted.append((date.fromisoformat(when), Decimal(amount)))
+        matches: list[str] = []
+        for option in view.context.payment_options:
+            if option.payment_method != result.recommended_payment_method:
+                continue
+            interval = option.payment_frequency_days or 0
+            schedule = tuple(
+                (option.first_payment_date + timedelta(days=interval * number), option.payment_amount)
+                for number in range(option.number_of_payments)
+            )
+            if schedule == tuple(wanted):
+                matches.append(option.payment_option_id)
+        return tuple(matches)
+
     def _format_debug(self, view: RecommendationView) -> str:
         """Factual implementation diagnostics only; never reasoning traces."""
         context = view.context
         facts = [f"{fact.fact_type}:{fact.source_id}:{fact.related_event_id or 'none'}" for fact in view.facts]
+        future = [
+            f"{event.effective_date.isoformat()} {event.event_id} {event.event_kind}/{event.category} "
+            f"{event.amount_in_home_currency if event.amount_in_home_currency is not None else 'missing'} "
+            f"{event.status} recurring={event.is_recurring} treatment={event.cash_treatment}"
+            for event in view.normalized_events
+            if event.effective_date >= context.request.request_date
+        ]
+        excluded = [
+            f"{event.event_id}: {event.cash_treatment}"
+            for event in view.normalized_events
+            if event.effective_date >= context.request.request_date and event.cash_treatment.startswith("excluded")
+        ]
+        candidates = PlanGenerator().generate(
+            request=context.request, profile=context.profile, payment_options=context.payment_options,
+            amount_safe_to_pay=view.result.amount_safe_to_pay,
+            earliest_full_payment_date=view.result.earliest_date_for_full_payment,
+        )
+        validations = []
+        for candidate in candidates:
+            validation = PlanValidator().validate(
+                plan=candidate, request=context.request, profile=context.profile,
+                payment_options=context.payment_options, normalized_events=view.normalized_events,
+                amount_safe_to_pay=view.result.amount_safe_to_pay,
+                earliest_full_payment_date=view.result.earliest_date_for_full_payment,
+            )
+            validations.append(
+                f"{candidate.method}/{candidate.payment_option_id or 'none'}: "
+                f"{'valid' if validation.is_valid else 'rejected ' + ','.join(validation.errors)}"
+            )
+        minimum = get_minimum_projected_balance(view.forecast)
+        minimum_day = min(view.forecast.days, key=lambda day: day.closing_balance)
         lines = [
             "DEBUG",
             f"request_id: {context.request.request_id}",
             f"user_id: {context.request.user_id}",
+            f"starting_balance: {context.profile.current_available_balance}",
+            f"minimum_balance_to_keep: {context.profile.minimum_balance_to_keep}",
+            f"forecast_minimum: {minimum} on {minimum_day.forecast_date.isoformat()}",
             "context event_ids: " + ", ".join(event.event_id for event in context.events[:20]),
             "payment_option_ids: " + ", ".join(option.payment_option_id for option in context.payment_options),
             "evidence facts: " + (", ".join(facts) if facts else "none"),
             "forecast event_ids: " + (", ".join(view.forecast_event_ids) if view.forecast_event_ids else "none"),
+            "future normalized events: " + (" | ".join(future[:60]) if future else "none"),
+            "excluded future events: " + (" | ".join(excluded) if excluded else "none"),
+            "candidate validation: " + (" | ".join(validations) if validations else "none"),
+            "selected plan: " + view.result.recommended_payment_method + " / " + view.result.payment_plan,
         ]
         return "\n".join(lines)
 
@@ -331,7 +430,7 @@ class BuyOrWaitTerminal:
 
 
 def run_terminal(terminal: BuyOrWaitTerminal, input_fn: Callable[[str], str] = input, output_fn: Callable[[str], None] = print) -> int:
-    """Repeatedly accept independent IDs and print one 15-line record each."""
+    """Repeatedly accept independent IDs and print one recommendation block."""
     while True:
         try:
             value = input_fn("> ").strip()
@@ -434,7 +533,7 @@ def main() -> int:
     parser.add_argument("--dataset-dir", type=Path, default=ROOT / "dataset", help="Challenge dataset directory.")
     parser.add_argument("--official", action="store_true", help="Use requests.csv instead of the default sample_requests.csv test set.")
     parser.add_argument("--all", action="store_true", help="Print independent recommendations for every selected request.")
-    parser.add_argument("--csv", action="store_true", help="Emit comma-separated records; default interactive output is one field per line.")
+    parser.add_argument("--csv", action="store_true", help="Emit comma-separated records; default interactive output is a labeled recommendation block.")
     parser.add_argument("--compare", action="store_true", help="Compare sample results with labelled columns without using them as inputs.")
     parser.add_argument("--output", type=Path, help="Optional human-readable output file for --all; never replaces output.csv.")
     parser.add_argument("--debug", action="store_true", help="Append factual source/record diagnostics to recommendations.")

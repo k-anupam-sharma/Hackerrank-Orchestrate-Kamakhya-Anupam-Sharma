@@ -114,7 +114,14 @@ def _recurring_event_ids(events: Iterable[FinancialEvent]) -> set[str]:
     source description to match.  Subscription and debt-payment categories are
     contractual streams in the supplied data, so their category remains the
     stable identity even when a provider's wording changes slightly.
+
+    Payroll-like income may vary while remaining a regular salary stream; its
+    latest observed amount is used conservatively. Variable platform/gig
+    payouts are historical observations, not confirmed recurring income, and
+    must not be projected as guaranteed cash. A stream is also terminated by a
+    later explicitly final/last payment.
     """
+    events = tuple(events)
     groups: defaultdict[tuple[str, ...], list[FinancialEvent]] = defaultdict(list)
     for event in events:
         if event.status not in {"settled", "pending", "scheduled"}:
@@ -124,12 +131,10 @@ def _recurring_event_ids(events: Iterable[FinancialEvent]) -> set[str]:
         if event.category == "windfall":
             continue
         key: tuple[str, ...] = (event.event_type, event.category, event.direction, event.currency)
-        # Explicitly flexible expenses are a user-controlled recurring
-        # category (for example dining or shopping), so keep those together
-        # for spending-change eligibility.  Fixed expense/income rows require
-        # the description to match; this avoids turning unrelated historical
-        # purchases in one category into a mandatory future stream.
-        if event.event_type not in {"subscription", "debt_payment"} and event.flexibility == "fixed":
+        # A description identifies an ordinary expense/income stream. This
+        # applies equally to flexible expenses: changing dining or transport
+        # descriptions are variable spending, not a fixed future charge.
+        if event.event_type not in {"subscription", "debt_payment"}:
             key += (event.description,)
         groups[key].append(event)
     recurring: set[str] = set()
@@ -140,8 +145,34 @@ def _recurring_event_ids(events: Iterable[FinancialEvent]) -> set[str]:
         dates = [item.settlement_date or item.event_date for item in ordered]
         gaps = [(later - earlier).days for earlier, later in zip(dates, dates[1:])]
         # Monthly, weekly, and biweekly patterns in the provided history are 7-35 days.
-        if len(gaps) >= 2 and 7 <= median(gaps) <= 35 and all(1 <= gap <= 45 for gap in gaps):
-            recurring.update(item.event_id for item in ordered)
+        if not (len(gaps) >= 2 and 7 <= median(gaps) <= 35 and all(1 <= gap <= 45 for gap in gaps)):
+            continue
+        if values[0].event_type == "income":
+            amounts = {item.amount for item in ordered}
+            payroll_like = any(
+                token in values[0].description.lower()
+                for token in ("payroll", "salary", "employer", "household income", "wage")
+            )
+            # Missing amounts cannot support a deterministic forecast. A
+            # payroll-like stream may vary; other changing income is not
+            # guaranteed recurring cash. Confirmed future rows are still
+            # handled directly by the forecast engine.
+            if None in amounts or (len(amounts) != 1 and not payroll_like):
+                continue
+            terminal_words = {"final", "last", "termination", "terminated"}
+            terminal_dates = [
+                item.settlement_date or item.event_date
+                for item in events
+                if item.event_type == "income"
+                and item.category == values[0].category
+                and item.direction == values[0].direction
+                and item.currency == values[0].currency
+                and any(word in item.description.lower().split() for word in terminal_words)
+            ]
+            latest_date = ordered[-1].settlement_date or ordered[-1].event_date
+            if terminal_dates and max(terminal_dates) >= latest_date:
+                continue
+        recurring.update(item.event_id for item in ordered)
     return recurring
 
 
@@ -153,7 +184,15 @@ def normalize_user_events(index: DatasetIndex, user_id: str) -> tuple[Normalized
     recurring_ids = _recurring_event_ids(raw_events)
     normalized: list[NormalizedEvent] = []
     for event in raw_events:
-        effective_date = event.settlement_date or event.event_date
+        # A scheduled record names the planned payment/payday in event_date;
+        # settlement_date is the later processing/settlement metadata. Pending
+        # debits continue to reserve cash on settlement_date, while settled
+        # cash uses its settlement date.
+        effective_date = (
+            event.event_date
+            if event.status == "scheduled"
+            else event.settlement_date or event.event_date
+        )
         conversion_date = event.settlement_date
         home_amount: Decimal | None = None
         conversion_status = "missing_amount"

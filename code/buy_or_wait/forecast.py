@@ -29,6 +29,9 @@ def _included_cash_delta(event: NormalizedEvent) -> Decimal | None:
 
 
 def _stream_key(event: NormalizedEvent) -> tuple[str, str, str, str]:
+    # Normalization decides which records are recurring.  Once a source record
+    # is marked recurring, the category/direction/currency identifies the cash
+    # stream for forecast expansion and spending changes.
     return (event.event_type, event.category, event.direction, event.currency)
 
 
@@ -63,6 +66,24 @@ def _apply_change(
     return change.new_amount if event.direction == "credit" else -change.new_amount
 
 
+def _add_month(value: date) -> date:
+    """Advance one calendar month while preserving a contractual day-of-month."""
+    month = value.month + 1
+    year = value.year
+    if month == 13:
+        year += 1
+        month = 1
+    # Avoid a dependency on calendar: clamp to the last day of the target
+    # month by trying the requested day and moving backward when necessary.
+    day = value.day
+    while day > 28:
+        try:
+            return date(year, month, day)
+        except ValueError:
+            day -= 1
+    return date(year, month, day)
+
+
 def _recurring_projections(
     events: Sequence[NormalizedEvent], request_date: date, horizon_end: date,
     changes_by_stream: dict[tuple[str, str, str, str], SpendingChange],
@@ -87,12 +108,14 @@ def _recurring_projections(
         interval = int(median(gaps))
         if interval <= 0:
             continue
+        dates = [event.effective_date for event in ordered]
+        calendar_monthly = 28 <= interval <= 31 and len({item.day for item in dates}) == 1
         observed_dates = {event.effective_date for event in ordered}
         anchor_candidates = [event for event in ordered if event.effective_date <= request_date]
         if not anchor_candidates:
             continue
         anchor = anchor_candidates[-1]
-        next_date = anchor.effective_date + timedelta(days=interval)
+        next_date = _add_month(anchor.effective_date) if calendar_monthly else anchor.effective_date + timedelta(days=interval)
         latest_delta = _included_cash_delta(anchor)
         assert latest_delta is not None
         while next_date <= horizon_end:
@@ -106,7 +129,7 @@ def _recurring_projections(
                     if not (change is not None and next_date >= change.effective_date and change.action == "stop"):
                         suffix = ":reduced" if change is not None and next_date >= change.effective_date else ""
                         projections.append((next_date, projected, f"recurrence:{anchor.event_id}{suffix}"))
-            next_date += timedelta(days=interval)
+            next_date = _add_month(next_date) if calendar_monthly else next_date + timedelta(days=interval)
     return projections
 
 
