@@ -115,7 +115,9 @@ python chat.py
 python chat.py --debug
 ```
 
-Type `list` to see evaluation request IDs, then `select request_26` (or enter an ID directly). After selection, use `summary`, `forecast`, `plan`, `explanation`, or ask a supported plain-language question such as “How much can I safely pay today?” The `--debug` mode shows source-backed events/facts, candidate plans, rejection reasons, and the selected plan; it does not expose chain-of-thought. The chatbot uses the same dataset and `solve_request` pipeline as the submission runner and does not ask an LLM to calculate money or make a recommendation.
+Type `list` to see evaluation request IDs, then `select request_26` (or enter an ID directly). That creates an active request session containing the loaded request context, the computed solver result, validated evidence facts, normalized events, displayed payment plan, and 90-day forecast. Every follow-up keeps using that cached active state until `select <another_request>`, `reset`, or `exit`; normal questions do not rerun the solver.
+
+Use `summary`, `forecast`, `plan`, `explanation`, and `sources`. `sources` shows factual provenance for the active request, while `sources request_69` inspects a different request without replacing the active one. Plain-language follow-ups cover affordability, safe amount, current/minimum balance, income, expenses, payment options, plan, forecast, and sources. The `--debug` mode shows source-backed events/facts, messages, images when a validated image fact exists, candidate plans, rejection reasons, and the selected plan; it does not expose chain-of-thought. The chatbot uses the same dataset and `solve_request` pipeline as the submission runner and does not ask an LLM to calculate money or make a recommendation.
 
 ## Repository layout
 

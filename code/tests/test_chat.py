@@ -44,6 +44,70 @@ class ChatTests(unittest.TestCase):
         unsupported, _ = self.chat.handle("What will the stock market do next year?")
         self.assertIn("do not establish", unsupported)
 
+    def test_active_request_accepts_many_followups_without_reselection(self) -> None:
+        chat = BuyOrWaitChat(ROOT / "dataset")
+        chat.handle("select request_67")
+        self.assertEqual("request_67", chat.active_request_id)
+        first_context = chat.active_request_context
+        first_result = chat.active_request_result
+        questions = (
+            "How much can I safely pay today?",
+            "Why?",
+            "What is my minimum balance?",
+            "When can I pay the full amount?",
+            "What payment options are available?",
+            "What happens to my balance after paying today?",
+        )
+        for question in questions:
+            with self.subTest(question=question):
+                response, keep_running = chat.handle(question)
+                self.assertTrue(keep_running)
+                self.assertTrue(response.strip())
+                self.assertEqual("request_67", chat.active_request_id)
+                self.assertIs(first_context, chat.active_request_context)
+                self.assertIs(first_result, chat.active_request_result)
+
+    def test_switch_reset_and_question_without_active_request(self) -> None:
+        chat = BuyOrWaitChat(ROOT / "dataset")
+        chat.handle("select request_67")
+        old_context = chat.active_request_context
+        response, _ = chat.handle("select request_69")
+        self.assertIn("ACTIVE REQUEST: request_69", response)
+        self.assertEqual("request_69", chat.active_request_id)
+        self.assertIsNot(old_context, chat.active_request_context)
+        chat.handle("reset")
+        no_context, keep_running = chat.handle("Can I afford this?")
+        self.assertTrue(keep_running)
+        self.assertIn("No request is selected", no_context)
+
+    def test_sources_commands_and_natural_language_are_request_scoped(self) -> None:
+        chat = BuyOrWaitChat(ROOT / "dataset")
+        chat.handle("select request_67")
+        active_sources, _ = chat.handle("sources")
+        asked_sources, _ = chat.handle("What sources did you use?")
+        other_sources, _ = chat.handle("sources request_69")
+        self.assertIn("SOURCES FOR request_67", active_sources)
+        self.assertIn("dataset/requests.csv", active_sources)
+        self.assertIn("request_id: request_67", active_sources)
+        self.assertIn("SOURCES FOR request_67", asked_sources)
+        self.assertIn("SOURCES FOR request_69", other_sources)
+        self.assertNotIn("request_id: request_67", other_sources)
+        self.assertEqual("request_67", chat.active_request_id)
+        active_event_ids = chat._affected_event_ids(chat.selected)
+        for event_id in active_event_ids:
+            self.assertEqual("user_67", chat.index.events_by_id[event_id].user_id)
+
+    def test_event_message_and_debug_provenance_answers(self) -> None:
+        chat = BuyOrWaitChat(ROOT / "dataset", debug=True)
+        chat.handle("select request_69")
+        events, _ = chat.handle("Which events affected the forecast?")
+        messages, _ = chat.handle("Which message affected this decision?")
+        debug, _ = chat.handle("debug")
+        self.assertIn("FINANCIAL EVENTS", events)
+        self.assertIn("message", messages.lower())
+        self.assertIn("Active request: request_69", debug)
+        self.assertIn("SOURCES FOR request_69", debug)
+
     def test_reset_exit_and_scripted_loop(self) -> None:
         self.chat.select(self.request_id)
         reset, _ = self.chat.handle("reset")

@@ -35,13 +35,13 @@ from buy_or_wait.solver import SolvedRequest, _add_spending_change_variants, sol
 
 
 LINE = "-" * 50
-COMMANDS = "help, list, select <request_id>, summary, forecast, plan, explanation, reset, exit"
+COMMANDS = "help, list, select <request_id>, summary, forecast, plan, explanation, sources [request_id], reset, exit"
 _PAYMENT_TOKEN = re.compile(r"^(\d{4}-\d{2}-\d{2}):([0-9]+(?:\.[0-9]+)?)$")
 
 
 def _money(amount: Decimal, currency: str) -> str:
     # Keep the fallback ASCII-friendly for common Windows terminal encodings.
-    symbols = {"INR": "₹", "USD": "$", "EUR": "EUR ", "ZAR": "R", "IDR": "Rp "}
+    symbols = {"INR": "INR ", "USD": "$", "EUR": "EUR ", "ZAR": "R", "IDR": "Rp "}
     return f"{symbols.get(currency, currency + ' ')}{format(amount, 'f')}"
 
 
@@ -53,6 +53,10 @@ def _format_date(value: date | None) -> str:
 class SelectedRequest:
     context: RequestContext
     result: SolvedRequest
+    facts: tuple
+    normalized_events: tuple
+    displayed_plan: PaymentPlan
+    forecast: object
 
 
 class BuyOrWaitChat:
@@ -63,6 +67,18 @@ class BuyOrWaitChat:
         self.debug = debug
         self.evidence_processor = EvidenceProcessor(self.index, model_adapter_from_environment())
         self.selected: SelectedRequest | None = None
+
+    @property
+    def active_request_id(self) -> str | None:
+        return None if self.selected is None else self.selected.context.request.request_id
+
+    @property
+    def active_request_context(self) -> RequestContext | None:
+        return None if self.selected is None else self.selected.context
+
+    @property
+    def active_request_result(self) -> SolvedRequest | None:
+        return None if self.selected is None else self.selected.result
 
     def list_requests(self, limit: int | None = None) -> str:
         requests = tuple(self.index.evaluation_requests_by_id.values())
@@ -81,11 +97,10 @@ class BuyOrWaitChat:
         if request_id not in self.index.evaluation_requests_by_id:
             return f"Unknown evaluation request ID: {request_id or '<empty>'}. Type 'list' to see available requests."
         try:
-            result = solve_request(request_id, self.index, evidence_processor=self.evidence_processor)
-            self.selected = SelectedRequest(self.index.get_request_context(request_id), result)
+            self.selected = self._build_selected_request(request_id)
         except Exception as exc:  # source/data failures are reported without ending the chat
             return f"Agent error while solving {request_id}: {type(exc).__name__}: {exc}"
-        return self.summary()
+        return f"ACTIVE REQUEST: {request_id}\n" + self.summary()
 
     def summary(self) -> str:
         selected = self._require_selected()
@@ -131,20 +146,7 @@ class BuyOrWaitChat:
         selected = self._require_selected()
         if isinstance(selected, str):
             return selected
-        context, result = selected.context, selected.result
-        facts = self.evidence_processor.extract_facts_for_request(context.request.request_id)
-        events = reconcile_evidence_facts(
-            self.index, context.request.user_id, normalize_user_events(self.index, context.request.user_id), facts,
-        )
-        plan = self._display_plan(result, context.request.request_date)
-        projected = forecast_balance(
-            starting_balance=context.profile.current_available_balance,
-            minimum_balance_to_keep=context.profile.minimum_balance_to_keep,
-            normalized_events=events,
-            request_date=context.request.request_date,
-            spending_changes=plan.spending_changes,
-            proposed_payments=plan.payments,
-        )
+        context, projected = selected.context, selected.forecast
         lowest = min(projected.days, key=lambda day: day.closing_balance)
         relevant = [day for day in projected.days if day.event_delta or day.payment_delta]
         lines = [
@@ -166,9 +168,7 @@ class BuyOrWaitChat:
         selected = self._require_selected()
         if isinstance(selected, str):
             return selected
-        context, result = selected.context, selected.result
-        facts = self.evidence_processor.extract_facts_for_request(context.request.request_id)
-        normalized = reconcile_evidence_facts(self.index, context.request.user_id, normalize_user_events(self.index, context.request.user_id), facts)
+        context, result, facts, normalized = selected.context, selected.result, selected.facts, selected.normalized_events
         earliest = find_earliest_safe_full_payment_date(
             starting_balance=context.profile.current_available_balance, minimum_balance_to_keep=context.profile.minimum_balance_to_keep,
             normalized_events=normalized, request_date=context.request.request_date, requested_amount=context.request.requested_amount,
@@ -180,10 +180,14 @@ class BuyOrWaitChat:
         if candidates is not baseline:
             validations.update({plan: validator.validate(plan=plan, request=context.request, profile=context.profile, payment_options=context.payment_options, normalized_events=normalized, amount_safe_to_pay=result.amount_safe_to_pay, earliest_full_payment_date=earliest) for plan in candidates if plan not in validations})
         chosen = choose_best_plan(plans=candidates, validations=validations, profile=context.profile)
-        lines = ["DEBUG (DECISION-RELEVANT FACTS ONLY)", f"Relevant raw events: {len(context.events)}", f"Extracted facts: {len(facts)}", f"Candidate plans: {len(candidates)}"]
+        lines = ["DEBUG (DECISION-RELEVANT FACTS ONLY)", f"Active request: {context.request.request_id}", f"Active user: {context.request.user_id}", f"Relevant raw events: {len(context.events)}", f"Relevant messages: {len(context.messages)}", f"Relevant images: {len(context.images)}", f"Payment options: {len(context.payment_options)}", f"Extracted facts: {len(facts)}", f"Candidate plans: {len(candidates)}"]
         for fact in facts:
             lines.append(f"- fact {fact.fact_type} for {fact.related_event_id or 'unlinked'} from {fact.source_id}")
+        rendered_plans: set[PaymentPlan] = set()
         for plan in candidates:
+            if plan in rendered_plans:
+                continue
+            rendered_plans.add(plan)
             validation = validations[plan]
             if validation.is_valid and validation.completes_by_deadline:
                 state = "accepted"
@@ -194,6 +198,8 @@ class BuyOrWaitChat:
                 state = "rejected: " + ", ".join(reasons)
             lines.append(f"- {plan.method} ({plan.payment_option_id or 'no option'}): {state}")
         lines.append(f"Selected plan: {chosen.method} ({chosen.payment_option_id or 'no option'})")
+        lines.append("")
+        lines.append(self._sources_for_selected(selected))
         return "\n".join(lines)
 
     def answer_question(self, question: str) -> str:
@@ -204,11 +210,27 @@ class BuyOrWaitChat:
         result, context = selected.result, selected.context
         if not question:
             return "Please ask a question or type 'help'."
+        if any(term in question for term in ("source", "which file", "provenance")):
+            return self._sources_for_selected(selected)
+        if "message" in question:
+            return self._message_answer(selected)
+        if any(term in question for term in ("which event", "what event", "financial event", "events affected", "upcoming transaction", "upcoming expense", "expenses affecting", "affecting the decision")):
+            return self._events_answer(selected)
+        if any(term in question for term in ("forecast", "what happens to my balance", "after paying", "projected balance")):
+            return self.forecast()
+        if any(term in question for term in ("current balance", "my balance", "available balance")):
+            return f"Current available balance in financial_profiles.csv: {_money(context.profile.current_available_balance, context.profile.home_currency)}."
+        if any(term in question for term in ("minimum balance", "minimum keep", "balance floor")):
+            return f"Minimum balance to keep: {_money(context.profile.minimum_balance_to_keep, context.profile.home_currency)}."
+        if any(term in question for term in ("upcoming income", "income coming", "salary")):
+            return self._upcoming_answer(selected, direction="credit", label="income")
+        if any(term in question for term in ("recurring expense", "recurring spending")):
+            return self._recurring_expenses_answer(selected)
         if any(term in question for term in ("safe", "how much", "pay today")):
             return f"The deterministic 90-day calculation says {_money(result.amount_safe_to_pay, context.profile.home_currency)} is safe to pay today before any optional spending changes."
-        if any(term in question for term in ("when", "full amount", "full payment", "afford later")):
+        if any(term in question for term in ("when", "full amount", "full payment", "afford later", "what if i wait")):
             return f"Earliest safe full-payment date: {_format_date(result.earliest_date_for_full_payment)}."
-        if "installment" in question:
+        if any(term in question for term in ("installment", "payment option", "options available")):
             options = [option for option in context.payment_options if option.payment_method == "installments"]
             if not options:
                 return "The available data contains no installment option for this request."
@@ -219,7 +241,7 @@ class BuyOrWaitChat:
         if any(term in question for term in ("plan", "schedule")):
             return self.plan()
         if any(term in question for term in ("why", "explain", "afford", "recommend", "method")):
-            return result.decision_explanation
+            return f"{result.decision_explanation}\n\nWhy this recommendation: {self._plan_reason(result)}"
         return "The available request, profile, events, evidence, payment options, and computed decision do not establish an answer to that question. Try 'summary', 'forecast', 'plan', or 'explanation'."
 
     def handle(self, text: str) -> tuple[str, bool]:
@@ -241,6 +263,12 @@ class BuyOrWaitChat:
             return self.plan(), True
         if lowered == "explanation":
             return self.explanation(), True
+        if lowered == "sources":
+            selected = self._require_selected()
+            return (selected if isinstance(selected, str) else self._sources_for_selected(selected)), True
+        if lowered.startswith("sources "):
+            request_id = command.split(None, 1)[1].strip()
+            return self.sources(request_id), True
         if lowered == "debug":
             return self.debug_report(), True
         if lowered == "reset":
@@ -249,11 +277,119 @@ class BuyOrWaitChat:
         if lowered.startswith("select "):
             return self.select(command.split(None, 1)[1]), True
         if self.selected is None:
-            return self.select(command), True
+            if command in self.index.evaluation_requests_by_id:
+                return self.select(command), True
+            return "No request is selected. Type 'list' or 'select <request_id>' before asking a question.", True
         return self.answer_question(command), True
 
     def _require_selected(self) -> SelectedRequest | str:
         return self.selected if self.selected is not None else "No request is selected. Type 'list' or 'select <request_id>'."
+
+    def sources(self, request_id: str) -> str:
+        """Show factual source provenance without changing the active request."""
+        if request_id not in self.index.evaluation_requests_by_id:
+            return f"Unknown evaluation request ID: {request_id or '<empty>'}. Type 'list' to see available requests."
+        if self.selected is not None and self.selected.context.request.request_id == request_id:
+            return self._sources_for_selected(self.selected)
+        context = self.index.get_request_context(request_id)
+        facts = self.evidence_processor.extract_facts_for_request(request_id)
+        return self._sources_report(context, facts, ())
+
+    def _build_selected_request(self, request_id: str) -> SelectedRequest:
+        """Compute once at selection time; all normal follow-ups reuse this state."""
+        context = self.index.get_request_context(request_id)
+        result = solve_request(request_id, self.index, evidence_processor=self.evidence_processor)
+        facts = self.evidence_processor.extract_facts_for_request(request_id)
+        normalized = reconcile_evidence_facts(
+            self.index, context.request.user_id, normalize_user_events(self.index, context.request.user_id), facts,
+        )
+        plan = self._display_plan(result, context.request.request_date)
+        projected = forecast_balance(
+            starting_balance=context.profile.current_available_balance,
+            minimum_balance_to_keep=context.profile.minimum_balance_to_keep,
+            normalized_events=normalized,
+            request_date=context.request.request_date,
+            spending_changes=plan.spending_changes,
+            proposed_payments=plan.payments,
+        )
+        return SelectedRequest(context, result, facts, normalized, plan, projected)
+
+    def _sources_for_selected(self, selected: SelectedRequest) -> str:
+        return self._sources_report(selected.context, selected.facts, self._affected_event_ids(selected))
+
+    def _sources_report(self, context: RequestContext, facts: tuple, event_ids: tuple[str, ...]) -> str:
+        request, profile = context.request, context.profile
+        lines = [LINE, f"SOURCES FOR {request.request_id}", LINE]
+        lines.extend((
+            "1. dataset/requests.csv",
+            f"   request_id: {request.request_id}; user_id: {request.user_id}",
+            "   fields used: request date, requested amount, completion date, partial-payment setting, request text",
+            "2. dataset/financial_profiles.csv",
+            f"   user_id: {profile.user_id}",
+            "   fields used: home currency, available balance, minimum balance, protected/flexible categories, payment preferences",
+        ))
+        if event_ids:
+            lines.extend(("3. dataset/financial_events.csv", f"   user_id: {request.user_id}", "   forecast event_ids: " + ", ".join(event_ids)))
+        elif context.events:
+            preview = ", ".join(event.event_id for event in context.events[:12])
+            lines.extend(("3. dataset/financial_events.csv", f"   user_id: {request.user_id}", f"   context event_ids (not a forecast-use claim): {preview}"))
+        if context.payment_options:
+            lines.extend(("4. dataset/request_payment_options.csv", f"   request_id: {request.request_id}", "   payment_option_ids: " + ", ".join(option.payment_option_id for option in context.payment_options)))
+        foreign = [event for event in context.events if event.event_id in event_ids and event.currency != profile.home_currency and event.amount is not None]
+        if foreign:
+            lines.extend(("5. dataset/exchange_rates.csv", "   used for dated conversion of foreign-currency event records when forecast-eligible."))
+        message_facts = [fact for fact in facts if fact.source_kind == "message"]
+        if message_facts:
+            lines.append("6. dataset/messages.csv")
+            lines.extend(f"   message_id: {fact.source_id}; related_event_id: {fact.related_event_id or 'none'}; fact: {fact.fact_type}" for fact in message_facts)
+        image_facts = [fact for fact in facts if fact.source_kind == "image"]
+        if image_facts:
+            lines.append("7. dataset/images.csv / dataset/media/images")
+            lines.extend(f"   image_id: {fact.source_id}; related_event_id: {fact.related_event_id or 'none'}; fact: {fact.fact_type}" for fact in image_facts)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _affected_event_ids(selected: SelectedRequest) -> tuple[str, ...]:
+        event_ids: list[str] = []
+        available = {event.event_id for event in selected.normalized_events}
+        for day in selected.forecast.days:
+            for source_id in day.source_ids:
+                event_id = source_id.removeprefix("recurrence:").split(":", 1)[0]
+                if event_id in available and event_id not in event_ids:
+                    event_ids.append(event_id)
+        return tuple(event_ids)
+
+    def _events_answer(self, selected: SelectedRequest) -> str:
+        affected = self._affected_event_ids(selected)
+        by_id = {event.event_id: event for event in selected.normalized_events}
+        if not affected:
+            return "No supplied financial-event record produced a dated movement in the selected 90-day forecast."
+        lines = ["FINANCIAL EVENTS AFFECTING THE FORECAST"]
+        for event_id in affected[:12]:
+            event = by_id[event_id]
+            amount = "unknown" if event.amount_in_home_currency is None else _money(event.amount_in_home_currency, event.home_currency)
+            lines.append(f"- financial_events.csv | event_id: {event_id} | {event.effective_date.isoformat()} | {event.direction} | {amount} | {event.description}")
+        if len(affected) > 12:
+            lines.append(f"- ... {len(affected) - 12} additional forecast events omitted.")
+        return "\n".join(lines)
+
+    def _message_answer(self, selected: SelectedRequest) -> str:
+        facts = [fact for fact in selected.facts if fact.source_kind == "message"]
+        if not facts:
+            return "No message produced a validated financial fact for this active request; messages did not alter the computed decision."
+        return "\n".join(["MESSAGES WITH VALIDATED FACTS"] + [f"- messages.csv | message_id: {fact.source_id} | related_event_id: {fact.related_event_id or 'none'} | {fact.fact_type}" for fact in facts])
+
+    def _upcoming_answer(self, selected: SelectedRequest, *, direction: str, label: str) -> str:
+        events = [event for event in selected.normalized_events if event.event_id in self._affected_event_ids(selected) and event.direction == direction]
+        if not events:
+            return f"The active 90-day forecast contains no supplied {label} event contributing to the result."
+        return "\n".join([f"UPCOMING {label.upper()}"] + [f"- event_id: {event.event_id}; {event.effective_date.isoformat()}; {_money(event.amount_in_home_currency or Decimal('0'), event.home_currency)}; {event.description}" for event in events[:8]])
+
+    def _recurring_expenses_answer(self, selected: SelectedRequest) -> str:
+        events = [event for event in selected.normalized_events if event.event_id in self._affected_event_ids(selected) and event.is_recurring and event.direction == "debit"]
+        if not events:
+            return "The active 90-day forecast contains no recurring debit event with a source record to list."
+        return "\n".join(["RECURRING EXPENSES IN THE FORECAST"] + [f"- event_id: {event.event_id}; {_money(event.amount_in_home_currency or Decimal('0'), event.home_currency)}; {event.description}" for event in events[:8]])
 
     @staticmethod
     def _plan_reason(result: SolvedRequest) -> str:
@@ -286,22 +422,28 @@ class BuyOrWaitChat:
 
 
 def run_chat(chat: BuyOrWaitChat, input_fn: Callable[[str], str] = input, output_fn: Callable[[str], None] = print) -> int:
-    output_fn("=" * 50)
-    output_fn("BUY OR WAIT - AI FINANCIAL AGENT")
-    output_fn("=" * 50)
-    output_fn("Enter a request ID to test, or type 'list' to see available requests.")
-    output_fn("Type 'help' for commands or 'exit' to quit.")
+    def emit(text: str) -> None:
+        try:
+            output_fn(text)
+        except UnicodeEncodeError:
+            output_fn(text.encode("ascii", errors="replace").decode("ascii"))
+
+    emit("=" * 50)
+    emit("BUY OR WAIT - AI FINANCIAL AGENT")
+    emit("=" * 50)
+    emit("Enter a request ID to test, or type 'list' to see available requests.")
+    emit("Type 'help' for commands or 'exit' to quit.")
     while True:
         try:
             text = input_fn("\n> ")
         except (EOFError, KeyboardInterrupt):
-            output_fn("\nGoodbye.")
+            emit("\nGoodbye.")
             return 0
         try:
             response, keep_running = chat.handle(text)
         except Exception as exc:  # defensive UI boundary: preserve prompt after malformed user input
             response, keep_running = f"Chat error: {type(exc).__name__}: {exc}", True
-        output_fn(response)
+        emit(response)
         if not keep_running:
             return 0
 
