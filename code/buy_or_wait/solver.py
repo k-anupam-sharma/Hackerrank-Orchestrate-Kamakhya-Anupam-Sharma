@@ -13,6 +13,7 @@ from typing import Iterable, Mapping
 from .ai_adapter import configured_explanation_generator_from_environment
 from .capacity import calculate_amount_safe_to_pay, find_earliest_safe_full_payment_date
 from .evidence import EvidenceProcessor, model_adapter_from_environment
+from .explanations import build_explanation_facts, generate_explanation
 from .loaders import OUTPUT_COLUMNS, DatasetIndex, load_dataset
 from .models import PaymentPlan, PlanValidationResult, Recommendation
 from .normalization import normalize_user_events
@@ -115,7 +116,13 @@ def solve_request(
         payment_plan=rendered.payment_plan,
         earliest_date_for_full_payment=earliest,
         spending_changes_needed=rendered.spending_changes_needed,
-        decision_explanation=_decision_explanation(rendered, facts, explanation_generator),
+        decision_explanation=generate_explanation(
+            build_explanation_facts(
+                profile=profile, request=request, normalized_events=normalized_events,
+                amount_safe_to_pay=safe_amount, recommendation=rendered,
+                earliest_full_payment_date=earliest,
+            ), explanation_generator,
+        ),
     )
 
 
@@ -202,28 +209,6 @@ def _add_spending_change_variants(
         ):
             variants.append(replace(plan, spending_changes=candidate.changes))
     return tuple(dict.fromkeys(variants))
-
-
-def _decision_explanation(rendered: Recommendation, facts, generator=None) -> str:
-    evidence_note = f" {len(facts)} bounded evidence fact(s) were reviewed." if facts else ""
-    if rendered.recommended_payment_method == "not_recommended":
-        fallback = "No safe eligible payment plan was found in the deterministic 90-day forecast." + evidence_note
-    else:
-        fallback = (
-        f"Deterministic 90-day forecasting selected {rendered.recommended_payment_method} "
-        f"with status {rendered.affordability_status}." + evidence_note
-        )
-    if generator is None:
-        return fallback
-    return generator.generate(
-        verified_fields={
-            "recommended_payment_method": rendered.recommended_payment_method,
-            "affordability_status": rendered.affordability_status,
-            "payment_plan": rendered.payment_plan,
-            "spending_changes_needed": rendered.spending_changes_needed,
-        },
-        fallback=fallback,
-    )
 
 
 def _validate_payment_fields(row: SolvedRequest, request, index: DatasetIndex) -> None:
