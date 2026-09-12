@@ -91,19 +91,33 @@ def solve_request(
         request=request, profile=profile, payment_options=context.payment_options,
         amount_safe_to_pay=safe_amount, earliest_full_payment_date=earliest,
     )
-    plans = _add_spending_change_variants(
-        baseline_plans=baseline_plans, profile=profile, normalized_events=normalized_events,
-        request_date=request.request_date,
-    )
     validator = PlanValidator()
-    validations = {
+    baseline_validations = {
         plan: validator.validate(
             plan=plan, request=request, profile=profile, payment_options=context.payment_options,
             normalized_events=normalized_events, amount_safe_to_pay=safe_amount,
             earliest_full_payment_date=earliest,
         )
-        for plan in plans
+        for plan in baseline_plans
     }
+    # A safe no-change plan outranks every spending-change plan. Avoid an
+    # expensive variant search whenever it cannot alter the recommendation.
+    if any(result.is_valid and result.completes_by_deadline for result in baseline_validations.values()):
+        plans, validations = baseline_plans, baseline_validations
+    else:
+        plans = _add_spending_change_variants(
+            baseline_plans=baseline_plans, profile=profile, normalized_events=normalized_events,
+            request_date=request.request_date,
+        )
+        validations = dict(baseline_validations)
+        validations.update({
+            plan: validator.validate(
+                plan=plan, request=request, profile=profile, payment_options=context.payment_options,
+                normalized_events=normalized_events, amount_safe_to_pay=safe_amount,
+                earliest_full_payment_date=earliest,
+            )
+            for plan in plans if plan not in validations
+        })
     selected = choose_best_plan(plans=plans, validations=validations, profile=profile)
     rendered = map_plan_to_recommendation(
         plan=selected, request=request, earliest_full_payment_date=earliest,
@@ -199,6 +213,9 @@ def _add_spending_change_variants(
     *, baseline_plans: tuple[PaymentPlan, ...], profile, normalized_events, request_date: date,
 ) -> tuple[PaymentPlan, ...]:
     engine = SpendingChangeEngine()
+    actions = engine.candidate_actions(
+        profile=profile, normalized_events=normalized_events, request_date=request_date,
+    )
     variants: list[PaymentPlan] = list(baseline_plans)
     for plan in baseline_plans:
         if plan.method == "not_recommended":
@@ -206,6 +223,7 @@ def _add_spending_change_variants(
         for candidate in engine.generate_safe_candidates(
             profile=profile, normalized_events=normalized_events, request_date=request_date,
             proposed_payments=plan.payments,
+            candidate_actions=actions,
         ):
             variants.append(replace(plan, spending_changes=candidate.changes))
     return tuple(dict.fromkeys(variants))

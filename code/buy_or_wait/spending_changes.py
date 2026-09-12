@@ -56,12 +56,12 @@ class SpendingChangeEngine:
         request_date: date,
         proposed_payments: Sequence[ScheduledPayment],
         horizon_days: int = 90,
+        candidate_actions: Sequence[SpendingChange] | None = None,
     ) -> tuple[SpendingChangeCandidate, ...]:
         """Return safe one-, two-, and three-change interventions in rank order."""
-        eligible = self.eligible_events(
+        actions = tuple(candidate_actions) if candidate_actions is not None else self.candidate_actions(
             profile=profile, normalized_events=normalized_events, request_date=request_date,
         )
-        actions = tuple(action for event in eligible for action in self._actions_for(event, profile, request_date))
         candidates: list[SpendingChangeCandidate] = []
         for count in range(1, min(self.max_changes, len(actions)) + 1):
             for change_set in combinations(actions, count):
@@ -82,6 +82,15 @@ class SpendingChangeEngine:
                 if is_plan_safe(forecast):
                     candidates.append(SpendingChangeCandidate(tuple(change_set), forecast))
         return tuple(sorted(candidates, key=lambda candidate: self._rank_key(candidate, normalized_events)))
+
+    def candidate_actions(
+        self, *, profile: UserProfile, normalized_events: Sequence[NormalizedEvent], request_date: date,
+    ) -> tuple[SpendingChange, ...]:
+        """Cacheable, plan-independent action universe for one user/request date."""
+        eligible = self.eligible_events(
+            profile=profile, normalized_events=normalized_events, request_date=request_date,
+        )
+        return tuple(action for event in eligible for action in self._actions_for(event, profile, request_date))
 
     def validate_changes(
         self,

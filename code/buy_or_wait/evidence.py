@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -188,12 +188,16 @@ def _grounded_in_message(candidate: EvidenceCandidate, message: Message) -> bool
 class EvidenceProcessor:
     index: DatasetIndex
     adapter: ModelAdapter | None = None
+    _facts_by_request_id: dict[str, tuple[EvidenceFact, ...]] = field(default_factory=dict, compare=False, repr=False)
 
     def find_image_for_event(self, event_id: str) -> ImageReference | None:
         images = self.index.images_by_related_event_id.get(event_id, ())
         return images[0] if images else None
 
     def extract_facts_for_request(self, request_id: str) -> tuple[EvidenceFact, ...]:
+        cached = self._facts_by_request_id.get(request_id)
+        if cached is not None:
+            return cached
         context = self.index.get_request_context(request_id)
         facts: list[EvidenceFact] = []
         for message in context.messages:
@@ -204,4 +208,6 @@ class EvidenceProcessor:
                 image = self.find_image_for_event(event.event_id)
                 if image is not None:
                     facts.extend(extract_image_facts(image, event, self.index, self.adapter))
-        return tuple(facts)
+        result = tuple(facts)
+        self._facts_by_request_id[request_id] = result
+        return result
