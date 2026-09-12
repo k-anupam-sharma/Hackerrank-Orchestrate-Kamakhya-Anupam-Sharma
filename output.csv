@@ -114,14 +114,14 @@ request_137,24928.90,affordable_later,wait,2026-01-13:80100,2026-01-13,none,Dete
 request_138,1158.73,affordable_with_plan,partial_payment,2026-04-07:1158.73|2026-04-14:98.21,2026-04-14,none,Deterministic 90-day forecasting selected partial_payment with status affordable_with_plan.
 request_139,1737.14,affordable_with_plan,installments,2024-09-07:802.88|2024-10-08:802.88|2024-11-08:802.88,2024-10-16,none,Deterministic 90-day forecasting selected installments with status affordable_with_plan.
 request_140,0.00,not_affordable,not_recommended,none,,none,No safe eligible payment plan was found in the deterministic 90-day forecast. 1 bounded evidence fact(s) were reviewed.
-request_141,23234.58,not_affordable,not_recommended,none,,none,No safe eligible payment plan was found in the deterministic 90-day forecast.
+request_141,23234.58,not_affordable,not_recommended,none,,none,No safe eligible payment plan was found in the deterministic 90-day forecast. 1 bounded evidence fact(s) were reviewed.
 request_142,1263.60,affordable_now,full_payment,2024-12-05:1263.6,2024-12-05,none,Deterministic 90-day forecasting selected full_payment with status affordable_now.
 request_143,2383.22,not_affordable,not_recommended,none,2025-07-17,none,No safe eligible payment plan was found in the deterministic 90-day forecast.
 request_144,0.00,not_affordable,not_recommended,none,,none,No safe eligible payment plan was found in the deterministic 90-day forecast. 1 bounded evidence fact(s) were reviewed.
 request_145,0.00,not_affordable,not_recommended,none,,none,No safe eligible payment plan was found in the deterministic 90-day forecast.
 request_146,11279.92,not_affordable,not_recommended,none,,none,No safe eligible payment plan was found in the deterministic 90-day forecast.
 request_147,0.00,not_affordable,not_recommended,none,,none,No safe eligible payment plan was found in the deterministic 90-day forecast.
-request_148,7665.48,affordable_with_plan,installments,2024-06-14:7710.56|2024-07-15:7710.56|2024-08-15:7710.56,2024-07-14,none,Deterministic 90-day forecasting selected installments with status affordable_with_plan.
+request_148,7665.48,affordable_with_plan,installments,2024-06-14:7710.56|2024-07-15:7710.56|2024-08-15:7710.56,2024-07-14,none,Deterministic 90-day forecasting selected installments with status affordable_with_plan. 1 bounded evidence fact(s) were reviewed.
 request_149,24545.82,affordable_with_plan,installments,2025-11-18:12706.03|2025-12-16:12706.03|2026-01-13:12706.03,2025-12-16,none,Deterministic 90-day forecasting selected installments with status affordable_with_plan.
 request_150,0.00,not_affordable,not_recommended,none,,none,No safe eligible payment plan was found in the deterministic 90-day forecast.
 request_151,26999000.00,affordable_now,full_payment,2024-09-03:26999000,2024-09-03,none,Deterministic 90-day forecasting selected full_payment with status affordable_now.
