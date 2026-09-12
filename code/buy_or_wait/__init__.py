@@ -9,6 +9,7 @@ from .plans import PlanGenerator, PlanValidator
 from .spending_changes import SpendingChangeEngine
 from .ranking import choose_best_plan, map_plan_to_recommendation
 from .solver import solve_all_requests, solve_dataset, solve_request, validate_output_csv
+from .reconciliation import reconcile_evidence_facts
 
 __all__ = [
     "DatasetIndex", "DatasetValidationError", "RequestContext", "load_dataset",
@@ -20,4 +21,5 @@ __all__ = [
     "SpendingChangeEngine",
     "choose_best_plan", "map_plan_to_recommendation",
     "solve_request", "solve_all_requests", "solve_dataset", "validate_output_csv",
+    "reconcile_evidence_facts",
 ]

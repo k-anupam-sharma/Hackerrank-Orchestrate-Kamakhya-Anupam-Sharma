@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -50,13 +49,9 @@ class DisabledModelAdapter:
 
 def model_adapter_from_environment() -> ModelAdapter:
     """Return the safe default unless a future provider integration is installed explicitly."""
-    provider = os.getenv("EVIDENCE_MODEL_PROVIDER", "").strip()
-    if not provider:
-        return DisabledModelAdapter()
-    raise RuntimeError(
-        f"No model adapter is installed for EVIDENCE_MODEL_PROVIDER={provider!r}; "
-        "install a provider-specific adapter without changing evidence validation."
-    )
+    from .ai_adapter import configured_model_adapter_from_environment
+
+    return configured_model_adapter_from_environment() or DisabledModelAdapter()
 
 
 def _amount_and_currency(text: str) -> tuple[Decimal, str] | None:

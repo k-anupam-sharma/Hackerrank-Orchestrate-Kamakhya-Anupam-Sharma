@@ -10,13 +10,15 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Iterable, Mapping
 
+from .ai_adapter import configured_explanation_generator_from_environment
 from .capacity import calculate_amount_safe_to_pay, find_earliest_safe_full_payment_date
-from .evidence import EvidenceProcessor
+from .evidence import EvidenceProcessor, model_adapter_from_environment
 from .loaders import OUTPUT_COLUMNS, DatasetIndex, load_dataset
 from .models import PaymentPlan, PlanValidationResult, Recommendation
 from .normalization import normalize_user_events
 from .plans import PlanGenerator, PlanValidator
 from .ranking import choose_best_plan, map_plan_to_recommendation
+from .reconciliation import reconcile_evidence_facts
 from .spending_changes import SpendingChangeEngine
 
 
@@ -55,15 +57,21 @@ class SolvedRequest:
         }
 
 
-def solve_request(request_id: str, index: DatasetIndex) -> SolvedRequest:
+def solve_request(
+    request_id: str, index: DatasetIndex, *, evidence_processor: EvidenceProcessor | None = None,
+    explanation_generator=None,
+) -> SolvedRequest:
     """Solve one request using only deterministic financial logic and bounded facts."""
     context = index.get_request_context(request_id)
     request, profile = context.request, context.profile
-    normalized_events = normalize_user_events(index, request.user_id)
     # Facts are deliberately extracted separately from source records. The current
     # deterministic reconciliation surface has no model provider, so unknown image
     # amounts remain unknown rather than being fabricated or treated as zero.
-    facts = EvidenceProcessor(index).extract_facts_for_request(request_id)
+    processor = evidence_processor or EvidenceProcessor(index, model_adapter_from_environment())
+    facts = processor.extract_facts_for_request(request_id)
+    normalized_events = reconcile_evidence_facts(
+        index, request.user_id, normalize_user_events(index, request.user_id), facts,
+    )
     safe_amount = calculate_amount_safe_to_pay(
         starting_balance=profile.current_available_balance,
         minimum_balance_to_keep=profile.minimum_balance_to_keep,
@@ -107,13 +115,21 @@ def solve_request(request_id: str, index: DatasetIndex) -> SolvedRequest:
         payment_plan=rendered.payment_plan,
         earliest_date_for_full_payment=earliest,
         spending_changes_needed=rendered.spending_changes_needed,
-        decision_explanation=_placeholder_explanation(rendered, facts),
+        decision_explanation=_decision_explanation(rendered, facts, explanation_generator),
     )
 
 
-def solve_all_requests(index: DatasetIndex) -> tuple[SolvedRequest, ...]:
+def solve_all_requests(
+    index: DatasetIndex, *, evidence_processor: EvidenceProcessor | None = None,
+    explanation_generator=None,
+) -> tuple[SolvedRequest, ...]:
     """Solve exactly the evaluation rows in the source CSV order."""
-    return tuple(solve_request(request.request_id, index) for request in index.evaluation_requests_by_id.values())
+    processor = evidence_processor or EvidenceProcessor(index, model_adapter_from_environment())
+    generator = explanation_generator if explanation_generator is not None else configured_explanation_generator_from_environment()
+    return tuple(
+        solve_request(request.request_id, index, evidence_processor=processor, explanation_generator=generator)
+        for request in index.evaluation_requests_by_id.values()
+    )
 
 
 def write_output_csv(rows: Iterable[SolvedRequest], output_path: str | Path, index: DatasetIndex) -> None:
@@ -188,13 +204,25 @@ def _add_spending_change_variants(
     return tuple(dict.fromkeys(variants))
 
 
-def _placeholder_explanation(rendered: Recommendation, facts) -> str:
+def _decision_explanation(rendered: Recommendation, facts, generator=None) -> str:
     evidence_note = f" {len(facts)} bounded evidence fact(s) were reviewed." if facts else ""
     if rendered.recommended_payment_method == "not_recommended":
-        return "No safe eligible payment plan was found in the deterministic 90-day forecast." + evidence_note
-    return (
+        fallback = "No safe eligible payment plan was found in the deterministic 90-day forecast." + evidence_note
+    else:
+        fallback = (
         f"Deterministic 90-day forecasting selected {rendered.recommended_payment_method} "
         f"with status {rendered.affordability_status}." + evidence_note
+        )
+    if generator is None:
+        return fallback
+    return generator.generate(
+        verified_fields={
+            "recommended_payment_method": rendered.recommended_payment_method,
+            "affordability_status": rendered.affordability_status,
+            "payment_plan": rendered.payment_plan,
+            "spending_changes_needed": rendered.spending_changes_needed,
+        },
+        fallback=fallback,
     )
 
 

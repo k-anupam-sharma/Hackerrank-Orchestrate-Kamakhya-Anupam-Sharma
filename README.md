@@ -41,6 +41,19 @@ Run the starter Python entry point with:
 python3 code/main.py
 ```
 
+### Optional AI assistance
+
+The solver runs deterministically without network access or model credentials. To enable the optional OpenAI JSON adapter for bounded message/image fact extraction and final explanation phrasing, set environment variables outside the repository:
+
+```text
+LLM_PROVIDER=openai
+LLM_MODEL=<your-supported-model>
+OPENAI_API_KEY=<your-key>
+LLM_MAX_RETRIES=2
+```
+
+`EVIDENCE_MODEL_PROVIDER` and `EVIDENCE_MODEL_MODEL` are accepted as equivalent evidence-specific overrides. Model output is schema-validated, reconciled through deterministic challenge rules, and falls back to no extracted facts or a deterministic explanation when unavailable. It never makes balance, date, safety, ranking, or payment-option decisions.
+
 After running your solution, confirm that `output.csv` exists in the repository root and contains the required columns and one row for every request.
 
 ## Important File Locations
