@@ -2,7 +2,7 @@
 
 ## Scope
 
-Profiled the deterministic full run over `dataset/requests.csv` (250 requests) with no LLM provider configured.
+Profiled the deterministic full run over `dataset/requests.csv` (250 requests) with no external inference configured.
 
 ## Benchmark
 
@@ -33,4 +33,4 @@ row_mismatches=0
 - CSV loading remains a single initial parse through `DatasetIndex`.
 - Currency conversions remain deterministic and source-date-specific; no approximate cache was introduced.
 - Capacity scans and 90-day forecasts are not shared across different payment schedules because their inputs differ.
-- No LLM is invoked unless explicitly configured through environment variables.
+- No external inference is invoked; the solver runs locally.

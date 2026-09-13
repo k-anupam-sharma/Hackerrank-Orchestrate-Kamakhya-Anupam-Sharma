@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Protocol, Sequence
+from typing import Sequence
 
 from .loaders import DatasetIndex
 from .models import EvidenceCandidate, EvidenceFact, FinancialEvent, ImageReference, Message
@@ -33,24 +33,6 @@ class EvidenceValidationError(ValueError):
     """Untrusted extraction output violates the bounded evidence schema."""
 
 
-class ModelAdapter(Protocol):
-    """Provider-neutral future extension point; it may return facts, never instructions."""
-
-    def extract_message(self, message: Message) -> Sequence[EvidenceCandidate]: ...
-
-    def extract_image(self, image_path: Path, linked_event: FinancialEvent) -> Sequence[EvidenceCandidate]: ...
-
-
-class DisabledModelAdapter:
-    """Safe default: no external model is called and no fact is fabricated."""
-
-    def extract_message(self, message: Message) -> Sequence[EvidenceCandidate]:
-        return ()
-
-    def extract_image(self, image_path: Path, linked_event: FinancialEvent) -> Sequence[EvidenceCandidate]:
-        return ()
-
-
 @dataclass(frozen=True)
 class TesseractImageAdapter:
     """Optional local OCR adapter for image-backed event amounts.
@@ -62,9 +44,6 @@ class TesseractImageAdapter:
 
     executable: str = "tesseract"
     timeout_seconds: int = 20
-
-    def extract_message(self, message: Message) -> Sequence[EvidenceCandidate]:
-        return ()
 
     def extract_image(self, image_path: Path, linked_event: FinancialEvent) -> Sequence[EvidenceCandidate]:
         if linked_event.currency not in CURRENCIES:
@@ -87,18 +66,13 @@ class TesseractImageAdapter:
         ),)
 
 
-def model_adapter_from_environment() -> ModelAdapter:
-    """Return the safe default unless a future provider integration is installed explicitly."""
-    from .ai_adapter import configured_model_adapter_from_environment
-
-    configured = configured_model_adapter_from_environment()
-    if configured is not None:
-        return configured
+def local_ocr_from_environment() -> TesseractImageAdapter | None:
+    """Configure only the local, deterministic OCR extractor when requested."""
     if os.getenv("LOCAL_OCR_ENABLED", "").strip().lower() in {"1", "true", "yes"}:
         executable = os.getenv("LOCAL_OCR_COMMAND", "").strip() or shutil.which("tesseract")
         if executable:
             return TesseractImageAdapter(executable)
-    return DisabledModelAdapter()
+    return None
 
 
 def _amount_and_currency(text: str) -> tuple[Decimal, str] | None:
@@ -235,16 +209,9 @@ def _validate_candidate(
     )
 
 
-def extract_message_facts(
-    message: Message, index: DatasetIndex, adapter: ModelAdapter | None = None
-) -> tuple[EvidenceFact, ...]:
+def extract_message_facts(message: Message, index: DatasetIndex) -> tuple[EvidenceFact, ...]:
     """Extract and validate message facts; message text never acts as executable policy."""
-    candidates = list(deterministic_message_candidates(message))
-    if adapter is not None:
-        candidates.extend(
-            candidate for candidate in adapter.extract_message(message)
-            if candidate.fact_type not in ALLOWED_FACT_TYPES or _grounded_in_message(candidate, message)
-        )
+    candidates = deterministic_message_candidates(message)
     return tuple(_validate_candidate(
         candidate, source_id=message.message_id, source_kind="message", user_id=message.user_id,
         request_id=message.request_id, source_timestamp=message.sent_at, source_origin=message.source_type,
@@ -253,14 +220,15 @@ def extract_message_facts(
 
 
 def extract_image_facts(
-    image: ImageReference, linked_event: FinancialEvent, index: DatasetIndex, adapter: ModelAdapter | None = None
+    image: ImageReference, linked_event: FinancialEvent, index: DatasetIndex,
+    image_extractor: TesseractImageAdapter | None = None,
 ) -> tuple[EvidenceFact, ...]:
-    """Extract linked image facts through an adapter; no image/OCR provider is assumed."""
+    """Extract linked image facts through optional local Tesseract OCR only."""
     if image.related_event_id != linked_event.event_id:
         raise EvidenceValidationError("Image must be processed with its related event")
     if not image.path.is_file():
         raise EvidenceValidationError(f"Image file is absent: {image.path}")
-    candidates = () if adapter is None else adapter.extract_image(image.path, linked_event)
+    candidates = () if image_extractor is None else image_extractor.extract_image(image.path, linked_event)
     return tuple(_validate_candidate(
         candidate, source_id=image.image_id, source_kind="image", user_id=image.user_id,
         request_id=image.request_id, source_timestamp=None, source_origin="image",
@@ -268,34 +236,10 @@ def extract_image_facts(
     ) for candidate in candidates)
 
 
-def _grounded_in_message(candidate: EvidenceCandidate, message: Message) -> bool:
-    """Conservative content checks prevent a model from turning instructions into facts."""
-    text = message.message_text.lower()
-    if candidate.related_event_id != message.related_event_id and candidate.fact_type != "income_confirmed":
-        return False
-    if candidate.fact_type == "event_cancelled":
-        return ("cancelled" in text or "canceled" in text) and "cancel all" not in text
-    if candidate.fact_type == "event_settled":
-        return "settled" in text
-    if candidate.fact_type == "event_amount_amended":
-        return _amount_and_currency(message.message_text) is not None and any(word in text for word in ("amended", "updated", "revised", "changed"))
-    if candidate.fact_type == "payment_delayed":
-        return _date_from_text(message.message_text) is not None and any(word in text for word in ("delayed", "expected", "rescheduled", "replaces"))
-    if candidate.fact_type == "income_confirmed":
-        has_amount_or_date = _amount_and_currency(message.message_text) is not None or _date_from_text(message.message_text) is not None
-        return has_amount_or_date and any(word in text for word in (
-            "salary", "payroll", "income", "payslip", "gaji", "penggajian", "slip gaji",
-        )) and any(word in text for word in (
-            "confirmed", "resumes", "next salary", "next payslip", "credit date",
-            "dikonfirmasi", "berlaku", "terjadwal", "expected on", "replaces",
-        ))
-    return candidate.fact_type == "event_amount" and _amount_and_currency(message.message_text) is not None
-
-
 @dataclass(frozen=True)
 class EvidenceProcessor:
     index: DatasetIndex
-    adapter: ModelAdapter | None = None
+    image_extractor: TesseractImageAdapter | None = None
     _facts_by_request_id: dict[str, tuple[EvidenceFact, ...]] = field(default_factory=dict, compare=False, repr=False)
 
     def find_image_for_event(self, event_id: str) -> ImageReference | None:
@@ -309,13 +253,13 @@ class EvidenceProcessor:
         context = self.index.get_request_context(request_id)
         facts: list[EvidenceFact] = []
         for message in context.messages:
-            facts.extend(extract_message_facts(message, self.index, self.adapter))
+            facts.extend(extract_message_facts(message, self.index))
         for event in context.events:
             # A blank source amount remains unknown unless an image adapter returns event_amount.
             if event.amount is None:
                 image = self.find_image_for_event(event.event_id)
                 if image is not None:
-                    facts.extend(extract_image_facts(image, event, self.index, self.adapter))
+                    facts.extend(extract_image_facts(image, event, self.index, self.image_extractor))
         result = tuple(facts)
         self._facts_by_request_id[request_id] = result
         return result

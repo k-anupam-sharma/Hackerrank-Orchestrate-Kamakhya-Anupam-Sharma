@@ -14,4 +14,4 @@ This report covers the final full-dataset run that produced the checked-in `outp
 | Estimated total cost | 0 |
 | Estimated cost per request | 0 |
 
-The final run used the deterministic offline fallback. Optional model adapters were not configured, so no credentials, prompts sent to a provider, or model-generated facts contributed to the produced output.
+The final run used only local deterministic processing. No external model, credential, prompt, or network inference contributed to the produced output.

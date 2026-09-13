@@ -1,8 +1,6 @@
 # Buy or Wait? — HackerRank Orchestrate 2026
 
-This repository contains a deterministic financial-planning solver for the HackerRank **Buy or Wait?** challenge. It reads the supplied CSV dataset, produces one recommendation for every request, and validates the submission-shaped `output.csv`.
-
-The default solver is offline and needs no API key or third-party package. Optional LLM assistance is strictly bounded to extracting facts from untrusted messages/images and rephrasing already verified explanations; financial arithmetic, forecasting, validation, and ranking remain deterministic.
+This repository contains a fully local, deterministic financial-planning solver for the HackerRank **Buy or Wait?** challenge. It reads the supplied CSV dataset, produces one recommendation for every request, and validates the submission-shaped `output.csv`.
 
 ## Architecture and safety model
 
@@ -10,7 +8,7 @@ For each `request_id`, the agent loads the profile, financial events, payment op
 
 Deterministic code owns all financial decisions: `Decimal` currency conversion using supplied dated rates; status/lifecycle treatment; recurrence expansion from source history; daily balance simulation; minimum-balance checks; safe-amount binary search; earliest-full-payment search; payment-plan validation; spending-change eligibility; ranking; and output validation.
 
-The optional LLM layer has no financial authority. It may turn relevant message/image content into bounded, provenance-carrying facts and may rephrase a closed set of already verified explanation fields. Its response is schema-validated and reconciled before use. It cannot create a new ledger event, alter a minimum balance, choose a plan, calculate money, or follow instructions contained in untrusted evidence. If it is unavailable or invalid, the solver safely falls back to deterministic behavior.
+Messages are interpreted by deterministic, bounded fact rules and reconciled with provenance. Final explanations are generated from verified structured facts using a deterministic template. Neither path has authority to alter a ledger, minimum balance, payment option, or recommendation.
 
 ### 90-day forecast
 
@@ -22,7 +20,7 @@ Only supplied payment options are used. Partial payment must use the exact two-p
 
 ### Evidence limitations
 
-Messages and images are untrusted data, never instructions. A missing event amount stays unknown—not zero—until a validated image-capable adapter extracts a linked fact. The offline default does not perform image OCR/vision extraction. To use local Tesseract OCR, install Tesseract, set `LOCAL_OCR_ENABLED=1`, and optionally set `LOCAL_OCR_COMMAND` to its executable path. OCR contributes a fact only when exactly one amount is explicitly paired with the linked event's known currency; ambiguous results are ignored. See [FINAL_AUDIT.md](FINAL_AUDIT.md) for other limitations.
+Messages and images are untrusted data, never instructions. A missing event amount stays unknown—not zero—until local Tesseract OCR extracts a linked fact. To use local OCR, install Tesseract, set `LOCAL_OCR_ENABLED=1`, and optionally set `LOCAL_OCR_COMMAND` to its executable path. OCR contributes a fact only when exactly one amount is explicitly paired with the linked event's known currency; ambiguous results are ignored. See [FINAL_AUDIT.md](FINAL_AUDIT.md) for other limitations.
 
 ## Requirements
 
@@ -45,7 +43,7 @@ py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-Install the dependency manifest (this is a no-op for the deterministic solver, but keeps the workflow stable if optional dependencies are enabled later):
+Install the dependency manifest (this is a no-op for the deterministic solver):
 
 ```bash
 python -m pip install -r requirements.txt
@@ -72,39 +70,6 @@ python evaluate.py
 ```
 
 The expected success line is `Evaluated 250 rows; failures=0` for the included dataset and generated output.
-
-## Optional LLM configuration
-
-The solver works without these settings. To enable an optional OpenAI or Groq adapter, first install its SDK explicitly and create a local environment file from the example:
-
-```bash
-python -m pip install openai
-cp .env.example .env                 # macOS / Linux
-Copy-Item .env.example .env          # Windows PowerShell
-```
-
-Set values in `.env` through your shell or environment manager before running; the application reads environment variables but intentionally does not load `.env` files itself. This avoids a hidden dependency and keeps deployment configuration explicit.
-
-```text
-LLM_PROVIDER=openai
-LLM_MODEL=<supported-model-name>
-OPENAI_API_KEY=<your-api-key>
-LLM_MAX_RETRIES=2
-```
-
-Never commit `.env` or an API key. If the provider, model, or key is absent, unavailable, or returns invalid data, the solver falls back safely to deterministic behavior.
-
-For Groq, set `LLM_PROVIDER=groq`, choose a Groq model with the JSON/vision
-capability required by the work, and set `GROQ_API_KEY` in the local
-environment. The Groq adapter uses its OpenAI-compatible HTTPS endpoint and
-has no additional package dependency. It can extract bounded evidence facts
-and rephrase only verified explanation fields; financial calculations and
-decisions stay deterministic.
-
-For NVIDIA NIM, set `LLM_PROVIDER=nvidia`, choose a model with the needed
-JSON/vision capability, and set `NVIDIA_API_KEY` in the local environment.
-NVIDIA is subject to the same bounded-fact validation and has no authority
-over financial calculations or recommendations.
 
 ## Commands and paths
 
@@ -156,7 +121,7 @@ The exact 15-column terminal record header is available in `--all --csv` output 
 ├── run_tests.py            # Portable test runner
 ├── evaluate.py             # Independent output evaluator
 ├── requirements.txt        # Required dependencies (currently standard library only)
-├── .env.example            # Optional LLM configuration template; no secrets
+├── .env.example            # Optional local Tesseract OCR configuration
 ├── code/
 │   ├── buy_or_wait/        # Solver, forecasting, planning, validation, evidence modules
 │   └── tests/              # Unit and integration tests

@@ -17,9 +17,8 @@ accuracy” below means that the IDs and foreign-key joins came from the
 authoritative CSV rows; it is intentionally separate from whether a message or
 image was interpreted.
 
-The current default model adapter is disabled.  Therefore linked image files
-are located and validated, but a blank source amount remains unknown unless a
-provider returns an image fact.  This is reported as missing evidence, never as
+Linked image files are located and validated, but a blank source amount remains
+unknown unless local OCR returns an image fact. This is reported as missing evidence, never as
 zero.
 
 ### Independent result versus sample oracle

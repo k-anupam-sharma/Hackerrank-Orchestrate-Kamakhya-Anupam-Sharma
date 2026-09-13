@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 import re
-from typing import Protocol, Sequence
+from typing import Sequence
 
 from .models import NormalizedEvent, Recommendation, Request, UserProfile
 
@@ -50,10 +50,6 @@ class ExplanationFacts:
         return fields
 
 
-class OptionalExplanationRephraser(Protocol):
-    def generate(self, *, verified_fields: dict[str, str], fallback: str) -> str: ...
-
-
 def build_explanation_facts(
     *, profile: UserProfile, request: Request, normalized_events: Sequence[NormalizedEvent],
     amount_safe_to_pay: Decimal, recommendation: Recommendation, earliest_full_payment_date: date | None,
@@ -84,13 +80,9 @@ def build_explanation_facts(
     )
 
 
-def generate_explanation(facts: ExplanationFacts, rephraser: OptionalExplanationRephraser | None = None) -> str:
-    """Produce a concise verified explanation, falling back whenever rephrasing is unsafe."""
-    fallback = deterministic_explanation(facts)
-    if rephraser is None:
-        return fallback
-    candidate = rephraser.generate(verified_fields=facts.closed_fields(), fallback=fallback)
-    return candidate if validate_explanation(candidate, facts) else fallback
+def generate_explanation(facts: ExplanationFacts) -> str:
+    """Produce the concise deterministic explanation for an already-selected result."""
+    return deterministic_explanation(facts)
 
 
 def deterministic_explanation(facts: ExplanationFacts) -> str:

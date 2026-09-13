@@ -10,14 +10,6 @@ from buy_or_wait.models import Recommendation, Request, UserProfile
 from test_forecast import START, event
 
 
-class StaticRephraser:
-    def __init__(self, response: str):
-        self.response = response
-
-    def generate(self, *, verified_fields, fallback):
-        return self.response
-
-
 class ExplanationTests(unittest.TestCase):
     def profile(self) -> UserProfile:
         return UserProfile("u1", "INR", Decimal("500"), Decimal("100"), (), (), (), (), ("full_payment",), None)
@@ -58,20 +50,6 @@ class ExplanationTests(unittest.TestCase):
         self.assertIn("2026-01-01:40|2026-01-03:160", explanation)
         self.assertIn("Safe to pay today: INR 40", explanation)
         self.assertTrue(validate_explanation(explanation, facts))
-
-    def test_rephraser_cannot_introduce_amount_or_conflicting_method(self) -> None:
-        facts = self.facts()
-        fallback = generate_explanation(facts)
-        invented = generate_explanation(facts, StaticRephraser("Selected full_payment and pay INR 999."))
-        conflicting = generate_explanation(facts, StaticRephraser("Selected installments."))
-        self.assertEqual(fallback, invented)
-        self.assertEqual(fallback, conflicting)
-
-    def test_nonempty_fact_bounded_rephrase_is_allowed(self) -> None:
-        facts = self.facts()
-        text = "Selected full_payment while preserving the minimum balance."
-        self.assertTrue(validate_explanation(text, facts))
-        self.assertEqual(text, generate_explanation(facts, StaticRephraser(text)))
 
     def test_fallback_for_not_recommended_still_names_selected_method(self) -> None:
         facts = build_explanation_facts(

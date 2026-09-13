@@ -14,7 +14,7 @@ Actual event types are: expense 20,525; subscription 2,488; income 1,696; debt_p
 - Conversion uses the exact dated supplied rate and `Decimal`; no live rate or float arithmetic is used.
 - Amount capacity is the deterministic maximum request-date payment before changes. A plan is safe only when every daily closing balance is at least the profile floor.
 - Payment options are copied exactly; partial plans require two payments and the request permission; waiting is independent of payment-method preference for capacity but requires accepted `full_payment` for recommendation.
-- Plans are validated before ranking. Ranking is deterministic and does not use the LLM.
+- Plans are validated before ranking. Ranking is deterministic and local.
 
 ## Request 01 reconstruction
 

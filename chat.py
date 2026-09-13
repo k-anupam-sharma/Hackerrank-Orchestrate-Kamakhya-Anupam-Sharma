@@ -24,7 +24,7 @@ CODE_DIR = ROOT / "code"
 if str(CODE_DIR) not in sys.path:
     sys.path.insert(0, str(CODE_DIR))
 
-from buy_or_wait.evidence import EvidenceProcessor, model_adapter_from_environment  # noqa: E402
+from buy_or_wait.evidence import EvidenceProcessor, local_ocr_from_environment  # noqa: E402
 from buy_or_wait.forecast import calculate_baseline_forecast, forecast_balance, get_minimum_projected_balance  # noqa: E402
 from buy_or_wait.loaders import DatasetIndex, RequestContext, load_dataset  # noqa: E402
 from buy_or_wait.models import PaymentPlan, ScheduledPayment, SpendingChange  # noqa: E402
@@ -95,7 +95,7 @@ class BuyOrWaitTerminal:
         # Expected sample answers are intentionally loaded lazily by comparison()
         # only after an independent solver result has been produced.
         self.sample_expected_by_id: dict[str, dict[str, str]] = {}
-        self.evidence_processor = EvidenceProcessor(self.index, model_adapter_from_environment())
+        self.evidence_processor = EvidenceProcessor(self.index, local_ocr_from_environment())
 
     def recommendation(self, request_id: str, *, csv_mode: bool = False) -> str:
         """Return one independent record without changing solver behavior.

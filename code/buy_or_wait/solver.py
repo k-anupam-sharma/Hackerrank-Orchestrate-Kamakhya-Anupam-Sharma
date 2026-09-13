@@ -10,9 +10,8 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Iterable, Mapping
 
-from .ai_adapter import configured_explanation_generator_from_environment
 from .capacity import calculate_amount_safe_to_pay, find_earliest_safe_full_payment_date
-from .evidence import EvidenceProcessor, model_adapter_from_environment
+from .evidence import EvidenceProcessor, local_ocr_from_environment
 from .explanations import build_explanation_facts, generate_explanation
 from .loaders import OUTPUT_COLUMNS, DatasetIndex, load_dataset
 from .models import PaymentPlan, PlanValidationResult, Recommendation
@@ -58,17 +57,13 @@ class SolvedRequest:
         }
 
 
-def solve_request(
-    request_id: str, index: DatasetIndex, *, evidence_processor: EvidenceProcessor | None = None,
-    explanation_generator=None,
-) -> SolvedRequest:
+def solve_request(request_id: str, index: DatasetIndex, *, evidence_processor: EvidenceProcessor | None = None) -> SolvedRequest:
     """Solve one request using only deterministic financial logic and bounded facts."""
     context = index.get_request_context(request_id)
     request, profile = context.request, context.profile
-    # Facts are deliberately extracted separately from source records. The current
-    # deterministic reconciliation surface has no model provider, so unknown image
-    # amounts remain unknown rather than being fabricated or treated as zero.
-    processor = evidence_processor or EvidenceProcessor(index, model_adapter_from_environment())
+    # Facts are extracted deterministically. Unknown image amounts remain unknown
+    # rather than being fabricated or treated as zero.
+    processor = evidence_processor or EvidenceProcessor(index, local_ocr_from_environment())
     facts = processor.extract_facts_for_request(request_id)
     normalized_events = reconcile_evidence_facts(
         index, request.user_id, normalize_user_events(index, request.user_id), facts,
@@ -135,20 +130,16 @@ def solve_request(
                 profile=profile, request=request, normalized_events=normalized_events,
                 amount_safe_to_pay=safe_amount, recommendation=rendered,
                 earliest_full_payment_date=earliest,
-            ), explanation_generator,
+            ),
         ),
     )
 
 
-def solve_all_requests(
-    index: DatasetIndex, *, evidence_processor: EvidenceProcessor | None = None,
-    explanation_generator=None,
-) -> tuple[SolvedRequest, ...]:
+def solve_all_requests(index: DatasetIndex, *, evidence_processor: EvidenceProcessor | None = None) -> tuple[SolvedRequest, ...]:
     """Solve exactly the evaluation rows in the source CSV order."""
-    processor = evidence_processor or EvidenceProcessor(index, model_adapter_from_environment())
-    generator = explanation_generator if explanation_generator is not None else configured_explanation_generator_from_environment()
+    processor = evidence_processor or EvidenceProcessor(index, local_ocr_from_environment())
     return tuple(
-        solve_request(request.request_id, index, evidence_processor=processor, explanation_generator=generator)
+        solve_request(request.request_id, index, evidence_processor=processor)
         for request in index.evaluation_requests_by_id.values()
     )
 

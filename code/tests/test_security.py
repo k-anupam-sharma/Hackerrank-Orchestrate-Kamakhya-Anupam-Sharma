@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import json
 import unittest
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from buy_or_wait.ai_adapter import LLMModelAdapter
 from buy_or_wait.evidence import extract_message_facts
 from buy_or_wait.forecast import forecast_balance, is_plan_safe
 from buy_or_wait.loaders import load_dataset
@@ -17,14 +15,6 @@ from test_forecast import START, event
 
 
 DATASET = Path(__file__).resolve().parents[2] / "dataset"
-
-
-class MockTransport:
-    def __init__(self, response: dict):
-        self.response = json.dumps(response)
-
-    def complete_json(self, **_kwargs):
-        return self.response
 
 
 def message(text: str) -> Message:
@@ -45,11 +35,7 @@ class SecurityTests(unittest.TestCase):
         )
         for text, asserted_fact in hostile_cases:
             with self.subTest(text=text):
-                adapter = LLMModelAdapter(MockTransport({"facts": [{
-                    "fact_type": asserted_fact, "related_event_id": "event_102", "amount": "1000000",
-                    "currency": "ZAR", "effective_date": "2026-01-01", "confidence": "1", "rationale": "instruction",
-                }]}), max_retries=0)
-                self.assertEqual((), extract_message_facts(message(text), self.index, adapter))
+                self.assertEqual((), extract_message_facts(message(text), self.index))
 
     def test_conflicting_amendments_choose_financially_safer_debit_amount(self) -> None:
         events = normalize_user_events(self.index, "user_01")

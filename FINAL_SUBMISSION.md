@@ -18,8 +18,8 @@ The financial core is deterministic. Raw events are normalized into a home-curre
 
 ## Safety mechanisms
 
-- Messages and images are untrusted data, not instructions. Their model/deterministic extraction surface accepts only bounded fact types with source IDs and validation.
-- Optional LLM use is restricted to fact extraction and closed-fact explanation phrasing. It cannot calculate balances, determine safety, change rules, create records, or rank plans.
+- Messages and images are untrusted data, not instructions. Deterministic parsing and optional local OCR accept only bounded fact types with source IDs and validation.
+- All facts, explanations, financial calculations, and recommendations are generated locally without external inference.
 - Conflict reconciliation applies explicit cancellation/settlement/amendment, newer same-source evidence, settled-state preference, then a financially conservative interpretation.
 - Spending changes are limited to up to three permitted, non-protected, flexible recurring expenses; stopping and reducing the same event is rejected.
 - The output evaluator independently checks identities, enums, money bounds, plan shape/totals, deadlines, installment equality, change eligibility, and simulated safety.

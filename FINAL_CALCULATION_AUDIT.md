@@ -67,5 +67,5 @@ The full suite passes: **104 tests, 104 passed, 0 failed**. New/updated coverage
 
 - The public sample oracle is not fully reproduced; the unresolved cases require a challenge-authoritative decision about how conservative variable essential spending and deadline-relative forecasts should be. The implementation deliberately follows the written 90-day rule and reports the divergence.
 - Evidence-only salary projections are created only for bounded, explicitly payroll/salary-worded messages with a stated amount; unsupported or ambiguous income remains excluded.
-- The model adapter is optional and unavailable providers safely fall back to deterministic extraction. No LLM can perform arithmetic or override deterministic rules.
+- Evidence extraction and financial calculations are local and deterministic; no external provider can perform arithmetic or override deterministic rules.
 - This audit does not claim perfect challenge accuracy. It establishes a mathematically proven capacity calculation, auditable event conservation, and a reproducible discrepancy report.

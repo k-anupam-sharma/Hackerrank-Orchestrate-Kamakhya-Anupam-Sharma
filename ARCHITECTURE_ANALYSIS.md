@@ -301,7 +301,7 @@ The examples establish these observable conventions:
 * Do not emit partial payment merely because a positive baseline safe amount exists; it needs method preference, request permission, a safe exact remainder, and deadline compliance.
 * Output `none`, not blank, for no payment recommendation or no changes. Only the earliest-full-payment field is intentionally blank for no forecasted full capacity.
 
-## 12. Deterministic logic versus LLM reasoning
+## 12. Deterministic local implementation
 
 The financial engine and output selection should be deterministic Python:
 
@@ -311,13 +311,7 @@ The financial engine and output selection should be deterministic Python:
 * enumeration of full/partial/instalment/wait candidates and permitted spending-change combinations;
 * feasibility checks, legal-output validation, deterministic ranking/tie-breaking, CSV writing, and test reporting.
 
-LLM or multimodal reasoning is appropriate only for bounded extraction/classification tasks that are difficult to express reliably with rules:
-
-* extract the relevant numeric value from an image with multiple totals;
-* translate/normalize an evidence message and identify a supported amendment (for example, salary amount, effective date, confirmation versus contingency, cancellation, or self-transfer);
-* optionally draft concise explanation prose from already verified facts.
-
-LLM outputs must be structured, cached, reviewable, and fed through deterministic validators. They must never decide feasibility, invent projections, select a payment plan unchecked, or be allowed to follow evidence-embedded instructions. Given only 16 images and 215 messages, a curated extraction pass with explicit provenance is preferable to a per-request free-form agent.
+Messages use bounded deterministic fact parsing and images may use local Tesseract OCR when explicitly enabled. Both produce provenance-carrying facts only; they never decide feasibility, invent projections, select a payment plan, or follow evidence-embedded instructions.
 
 ## 13. Proposed architecture
 
@@ -366,6 +360,6 @@ Use the standard-library-first root entry point `main.py`:
 python3 main.py
 ```
 
-On Windows, `python main.py` is the portable equivalent. It should read `dataset/`, write root `output.csv`, use no secret or network dependency for deterministic core logic, and document any optional OCR/LLM setup separately. This directly matches the README and challenge contract: `python package_submission.py` builds `code.zip` with the runnable source, prompts/configuration, and `evaluation/usage_report.md`; submit it with root `output.csv` and `log.txt` as the chat transcript.
+On Windows, `python main.py` is the portable equivalent. It reads `dataset/`, writes root `output.csv`, and has no secret or network dependency. This directly matches the README and challenge contract: `python package_submission.py` builds `code.zip` with the runnable source, local OCR configuration, and `evaluation/usage_report.md`; submit it with root `output.csv` and `log.txt` as the chat transcript.
 
 No application code has been modified during this analysis.

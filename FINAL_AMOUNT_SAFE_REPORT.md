@@ -76,5 +76,4 @@ The representative official requests `request_26`, `request_67`, `request_69`, `
 
 ## Remaining limitations
 
-The challenge statement requires image-derived missing amounts, but the default model adapter is deliberately disabled without configured vision credentials; such amounts remain unknown rather than becoming zero. More importantly, the public sample labels cannot currently be treated as a proof that a different source-event interpretation is correct. The retained mismatches need a challenge-authoritative recurrence/essential-variable-spending policy or hidden evaluation feedback before a general correction can be justified.
-
+The challenge statement requires image-derived missing amounts. Without enabled local OCR, such amounts remain unknown rather than becoming zero. More importantly, the public sample labels cannot currently be treated as a proof that a different source-event interpretation is correct. The retained mismatches need a challenge-authoritative recurrence/essential-variable-spending policy or hidden evaluation feedback before a general correction can be justified.

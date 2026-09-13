@@ -2,9 +2,9 @@
 
 ## Objective and constraints
 
-Build a terminal-runnable Python program that reads only `dataset/`, evaluates all requests deterministically, and writes root `output.csv`. The only nondeterministic/LLM-capable component is a bounded evidence extractor. It may interpret language and images and draft explanations, but it cannot calculate money, simulate balances, choose a plan, or override validation.
+Build a terminal-runnable Python program that reads only `dataset/`, evaluates all requests deterministically, and writes root `output.csv`. Bounded message parsing, optional local OCR, and explanations are local deterministic components; they cannot calculate money, simulate balances, choose a plan, or override validation.
 
-Use the standard library for the core (`csv`, `dataclasses`, `datetime`, `decimal`, `enum`, `pathlib`, `typing`, `json`, `argparse`, `unittest`). No LangChain, LangGraph, vector database, database, multi-agent framework, or cloud service is needed. Optional evidence-provider integration must be isolated behind one interface and disabled by default.
+Use the standard library for the core (`csv`, `dataclasses`, `datetime`, `decimal`, `enum`, `pathlib`, `typing`, `json`, `argparse`, `unittest`). No cloud service or external inference is needed.
 
 ## Proposed project structure
 
@@ -315,7 +315,7 @@ class Decision:
 | `plans.py` | Enumerate full, partial, instalment, wait, and bounded spending-change candidates. | Declare a plan valid without validator. |
 | `validation.py` | Validate eligibility, schedule, deadline, spending changes, floor, and output invariants. | Rank alternatives. |
 | `ranking.py` | Sort only valid candidates by challenge order; select winner. | Recalculate balance. |
-| `explanations.py` | Turn verified `Decision.explanation_facts` into concise output text; optional LLM phrasing behind interface. | Introduce facts or modify numeric decision fields. |
+| `explanations.py` | Turn verified `Decision.explanation_facts` into concise deterministic output text. | Introduce facts or modify numeric decision fields. |
 | `output.py` | Format exact CSV fields and validate complete row set/header. | Perform financial logic. |
 | `pipeline.py` | Compose the modules for one request and full batch. | Contain duplicated domain rules. |
 | `main.py` | Parse CLI options, invoke pipeline, return exit code. | Embed domain logic. |
@@ -381,7 +381,7 @@ Implementation rules:
 * Materialize a daily calendar inclusive of the request date and 90 subsequent days.
 * Use signed `CashMovement`s plus recurrent projections and candidate payments.
 * Apply all known same-day deltas as one deterministic net cash delta; the day is safe only if its closing balance meets the floor. If a required intraday ordering cannot be established, use the safer temporary ordering in the movement builder.
-* `max_safe_payment_today` must be found with deterministic monotonic search over money precision (binary search plus quantization), not an LLM estimate.
+* `max_safe_payment_today` must be found with deterministic monotonic search over money precision (binary search plus quantization).
 * `earliest_safe_full_payment_date` evaluates candidate full-payment dates chronologically under the no-optional-change baseline.
 * Return all daily balances and source IDs, so failed plans explain precisely why they are invalid.
 
@@ -466,7 +466,7 @@ Filter invalid plans first. The ascending rank tuple is:
 
 The final option-ID component applies only when earlier criteria tie. A partial or wait plan has no source option ID; implementation should use a documented sentinel only after all meaningful prior criteria are equal. The ranker returns `None` when no candidate is valid; pipeline then creates `not_affordable` / `not_recommended` with `payment_plan=none`.
 
-## LLM/evidence extraction interface
+## Local evidence extraction interface
 
 ```python
 class EvidenceExtractor(Protocol):
@@ -480,13 +480,7 @@ class EvidenceStore(Protocol):
     def put(self, source_id: str, facts: tuple[EvidenceFact, ...]) -> None: ...
 ```
 
-The default first version may use a checked-in, human-reviewed `evidence_facts.json` compiled from these 215 messages and 16 images, keeping the production decision run fully deterministic. If an optional model provider is enabled, it receives only the source content and a schema-constrained task:
-
-* extract facts from the `EvidenceFactKind` allowlist;
-* cite source ID and exact supporting fragment/visual label in `rationale`;
-* return no recommendation, instruction, calculation, safety score, or output-row field.
-
-`evidence.py` rejects facts with unknown IDs, bad types, impossible dates/currencies, or unsupported source scope. It never executes text from evidence and never passes a model result directly to `forecast.py` or `plans.py` without reconciliation.
+`evidence.py` applies bounded message rules and optional local OCR. It rejects facts with unknown IDs, bad types, impossible dates/currencies, or unsupported source scope. It never executes text from evidence and never passes an extracted fact directly to `forecast.py` or `plans.py` without reconciliation.
 
 ## Final explanation interface
 
@@ -496,7 +490,7 @@ class ExplanationGenerator(Protocol):
         """Render a concise explanation from verified decision facts only."""
 ```
 
-Default implementation is templated and deterministic. For example, it uses method, scheduled payments, floor, earliest safe date, and listed spending changes from `Decision.explanation_facts`. An optional LLM rephraser receives a closed fact bundle and must return plain text only; validation rejects numbers/dates/currencies not already present in the bundle. The result never feeds back into the decision engine.
+The implementation is templated and deterministic. It uses method, scheduled payments, floor, earliest safe date, and listed spending changes from `Decision.explanation_facts`; it never feeds back into the decision engine.
 
 ## Pipeline orchestration
 
@@ -549,7 +543,7 @@ python main.py --dataset-dir dataset --output-path output.csv
 python evaluate.py --output-path output.csv
 ```
 
-The release validator verifies 250 rows, exact header/order, unique request IDs, allowed enums, money bounds, plan chronology/sums, option equality, date/deadline compliance, allowable changes, and no simulated floor breach. If an optional LLM was used for the final evidence/explanation run, populate `evaluation/usage_report.md` from recorded provider/model/call/token/cost metrics; otherwise report zero model calls explicitly.
+The release validator verifies 250 rows, exact header/order, unique request IDs, allowed enums, money bounds, plan chronology/sums, option equality, date/deadline compliance, allowable changes, and no simulated floor breach. `evaluation/usage_report.md` records zero external model calls.
 
 ## Implementation sequence
 
