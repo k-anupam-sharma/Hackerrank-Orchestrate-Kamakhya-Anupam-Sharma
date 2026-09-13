@@ -71,10 +71,10 @@ class RecommendationView:
 class BuyOrWaitTerminal:
     """Thin stateless adapter around the real dataset and ``solve_request``.
 
-    The terminal defaults to the labelled sample requests so it is convenient
-    for local testing.  ``solve_request`` still receives only the canonical
-    :class:`Request` fields loaded by ``load_dataset``; sample answer columns
-    are read separately and are used only by explicit comparison mode.
+    The terminal defaults to production ``requests.csv``.  ``--sample`` is an
+    explicit offline benchmark mode. ``solve_request`` always receives only
+    canonical :class:`Request` fields loaded by ``load_dataset``; sample answer
+    columns are read separately and only by explicit comparison mode.
     """
 
     def __init__(
@@ -82,7 +82,7 @@ class BuyOrWaitTerminal:
         dataset_dir: str | Path = ROOT / "dataset",
         *,
         debug: bool = False,
-        sample_mode: bool = True,
+        sample_mode: bool = False,
     ) -> None:
         self.index: DatasetIndex = load_dataset(dataset_dir)
         self.debug = debug
@@ -554,7 +554,9 @@ def run_all(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Print one Buy or Wait recommendation per request ID.")
     parser.add_argument("--dataset-dir", type=Path, default=ROOT / "dataset", help="Challenge dataset directory.")
-    parser.add_argument("--official", action="store_true", help="Use requests.csv instead of the default sample_requests.csv test set.")
+    source_group = parser.add_mutually_exclusive_group()
+    source_group.add_argument("--sample", action="store_true", help="Use sample_requests.csv for offline benchmark testing only.")
+    source_group.add_argument("--official", action="store_true", help="Use production requests.csv (the default; retained for compatibility).")
     parser.add_argument("--all", action="store_true", help="Print independent recommendations for every selected request.")
     parser.add_argument("--csv", action="store_true", help="Emit comma-separated records; default interactive output is a labeled recommendation block.")
     parser.add_argument("--compare", action="store_true", help="Compare sample results with labelled columns without using them as inputs.")
@@ -562,9 +564,9 @@ def main() -> int:
     parser.add_argument("--debug", action="store_true", help="Append factual source/record diagnostics to recommendations.")
     args = parser.parse_args()
     try:
-        if args.compare and args.official:
-            parser.error("--compare is available only with the sample request set")
-        terminal = BuyOrWaitTerminal(args.dataset_dir, debug=args.debug, sample_mode=not args.official)
+        if args.compare and not args.sample:
+            parser.error("--compare requires --sample and is unavailable for production requests.csv")
+        terminal = BuyOrWaitTerminal(args.dataset_dir, debug=args.debug, sample_mode=args.sample)
         if not args.all:
             if args.output is not None:
                 parser.error("--output is supported only with --all")

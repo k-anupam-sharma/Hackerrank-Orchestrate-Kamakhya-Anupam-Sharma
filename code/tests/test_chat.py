@@ -19,8 +19,8 @@ from buy_or_wait.loaders import load_dataset  # noqa: E402
 class TerminalTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.sample = BuyOrWaitTerminal(ROOT / "dataset")
-        cls.official = BuyOrWaitTerminal(ROOT / "dataset", sample_mode=False)
+        cls.sample = BuyOrWaitTerminal(ROOT / "dataset", sample_mode=True)
+        cls.official = BuyOrWaitTerminal(ROOT / "dataset")
         with (ROOT / "output.csv").open(encoding="utf-8", newline="") as handle:
             cls.output_by_id = {row["request_id"]: row for row in csv.DictReader(handle)}
 
@@ -30,6 +30,13 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(250, len(index.evaluation_requests_by_id))
         self.assertEqual(25, len(self.sample.requests_by_id))
         self.assertEqual(250, len(self.official.requests_by_id))
+
+    def test_terminal_default_is_production_request_set(self) -> None:
+        default = BuyOrWaitTerminal(ROOT / "dataset")
+        self.assertFalse(default.sample_mode)
+        self.assertEqual("requests.csv", default.request_source_filename)
+        self.assertIn("REQUEST", default.recommendation("request_26"))
+        self.assertEqual("Request ID not found: request_01", default.recommendation("request_01"))
 
     def test_sample_request_01_and_request_25_lookup(self) -> None:
         self.assertIn("REQUEST", self.sample.recommendation("request_01"))
@@ -130,7 +137,7 @@ class TerminalTests(unittest.TestCase):
 
     def test_debug_mode_is_explicit(self) -> None:
         normal = self.sample.recommendation("request_10")
-        debug = BuyOrWaitTerminal(ROOT / "dataset", debug=True).recommendation("request_10")
+        debug = BuyOrWaitTerminal(ROOT / "dataset", debug=True, sample_mode=True).recommendation("request_10")
         self.assertNotIn("DEBUG", normal)
         self.assertIn("DEBUG", debug)
 

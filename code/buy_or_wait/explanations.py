@@ -137,7 +137,12 @@ def deterministic_explanation(facts: ExplanationFacts) -> str:
         text += f" Included confirmed salary: {currency} {_money(income.amount_in_home_currency or Decimal('0'))} on {income.effective_date.isoformat()}."
     if facts.recurring_expenses:
         expense = facts.recurring_expenses[0]
-        text += f" Included recurring {expense.category} expense: {currency} {_money(expense.amount_in_home_currency or Decimal('0'))}."
+        expense_detail = f" Included recurring {expense.category} expense: {currency} {_money(expense.amount_in_home_currency or Decimal('0'))}."
+        # The evaluator permits a compact CSV-cell explanation. Keep the most
+        # decision-relevant, dated income fact when the selected plan itself
+        # already consumes the available explanation budget.
+        if len(text) + len(expense_detail) <= 500:
+            text += expense_detail
     return text
 
 

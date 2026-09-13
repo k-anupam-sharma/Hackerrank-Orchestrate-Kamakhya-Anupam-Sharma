@@ -1,7 +1,7 @@
 # Evaluation Report
 
 - Output rows read: 250
-- Validation failures: 2
+- Validation failures: 0
 
 ## Status counts
 
@@ -12,4 +12,4 @@
 
 ## Failures by category
 
-- `unsupported_explanation_fact`: 2; representative request IDs: request_89, request_218
+No validator failures were found in this run. This confirms only the implemented deterministic checks; it does not establish hidden-label correctness.

@@ -108,24 +108,31 @@ Never commit `.env` or an API key. If the provider, model, or key is absent, una
 
 ## Terminal request runner
 
-Use the terminal request runner to inspect the labelled sample requests without changing the financial engine:
+Use the terminal request runner to inspect production requests without changing the financial engine:
 
 ```bash
 python chat.py
 python chat.py --debug
 ```
 
-Enter one sample request ID, for example `request_01`. The runner independently calls the same `solve_request` pipeline used by the submission flow and prints one concise labeled `REQUEST` / `AGENT DECISION` / `SOURCES` block. It then returns to the `>` prompt for another ID. Use `--csv` when a comma-separated record is required. There is no active conversation state, no natural-language follow-up mode, and no financial calculation in `chat.py`. Only canonical request-input columns are loaded into the solver; labelled answer columns are isolated for `--compare` display.
+Enter one production request ID, for example `request_26`. The runner independently calls the same `solve_request` pipeline used by the submission flow and prints one concise labeled `REQUEST` / `AGENT DECISION` / `SOURCES` block. It then returns to the `>` prompt for another ID. Use `--csv` when a comma-separated record is required. There is no active conversation state, no natural-language follow-up mode, and no financial calculation in `chat.py`.
 
-Process every sample request without prompting:
+Process every production request without prompting:
 
 ```bash
 python chat.py --all
-python chat.py --all --compare
-python chat.py --all --compare --output sample_recommendations.txt
+python chat.py --all --output production_recommendations.txt
 ```
 
-`chat.py` defaults to `dataset/sample_requests.csv` (currently 25 requests) for temporary testing. `--compare` shows the independently generated record beside the sample labels and never feeds labels into the solver. `--all` processes every request in the selected set; `--output` writes the same terminal records/diagnostics only and never replaces official `output.csv`. Use `--official` to inspect `dataset/requests.csv` through the same presentation layer. The optional `--debug` flag appends factual source/record diagnostics to each record. It does not expose chain-of-thought. The official solver remains `python main.py` and always uses `dataset/requests.csv` by default.
+`chat.py` now defaults to `dataset/requests.csv` (currently 250 requests). `--all` processes every request in the selected production set; `--output` writes the same terminal records/diagnostics only and never replaces official `output.csv`. `--official` remains an explicit compatibility alias for the default. The optional `--debug` flag appends factual source/record diagnostics to each record. It does not expose chain-of-thought. The official solver remains `python main.py` and always uses `dataset/requests.csv` by default.
+
+Run the labelled 25-request sample benchmark explicitly:
+
+```bash
+python chat.py --sample --all --compare
+```
+
+`--sample` is offline diagnostic mode only. It selects `dataset/sample_requests.csv`; its completed answer columns are loaded only after independent solving to display `--compare` results, never as solver input.
 
 The exact 15-column terminal record header is available in `--all --csv` output and is also used by `--csv`. Sample comparison details, including every mismatch field and source context, are recorded in [SAMPLE_COMPARISON_AUDIT.md](SAMPLE_COMPARISON_AUDIT.md), with the current correctness findings in [SAMPLE_COMPARISON_REPORT.md](SAMPLE_COMPARISON_REPORT.md).
 
