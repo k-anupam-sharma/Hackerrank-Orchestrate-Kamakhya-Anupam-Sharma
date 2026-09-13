@@ -38,9 +38,26 @@ class ExplanationTests(unittest.TestCase):
     def test_deterministic_explanation_uses_only_verified_constraints(self) -> None:
         explanation = generate_explanation(self.facts())
         self.assertIn("full_payment", explanation)
+        self.assertIn("Requested: INR 200", explanation)
+        self.assertIn("Safe to pay today: INR 200", explanation)
+        self.assertIn("Payment plan: 2026-01-01:200", explanation)
         self.assertIn("INR 200", explanation)
         self.assertIn("INR 100", explanation)
         self.assertIn("2026-01-03", explanation)
+
+    def test_explanation_uses_selected_result_without_making_a_new_decision(self) -> None:
+        facts = build_explanation_facts(
+            profile=self.profile(), request=self.request(), normalized_events=(), amount_safe_to_pay=Decimal("40"),
+            recommendation=Recommendation(
+                "affordable_with_plan", "partial_payment", "2026-01-01:40|2026-01-03:160", "none",
+            ),
+            earliest_full_payment_date=START + timedelta(days=2),
+        )
+        explanation = generate_explanation(facts)
+        self.assertIn("partial_payment", explanation)
+        self.assertIn("2026-01-01:40|2026-01-03:160", explanation)
+        self.assertIn("Safe to pay today: INR 40", explanation)
+        self.assertTrue(validate_explanation(explanation, facts))
 
     def test_rephraser_cannot_introduce_amount_or_conflicting_method(self) -> None:
         facts = self.facts()
@@ -62,7 +79,10 @@ class ExplanationTests(unittest.TestCase):
             recommendation=Recommendation("not_affordable", "not_recommended", "none", "none"),
             earliest_full_payment_date=None,
         )
-        self.assertIn("not_recommended", generate_explanation(facts))
+        explanation = generate_explanation(facts)
+        self.assertIn("not_recommended", explanation)
+        self.assertIn("2026-01-21", explanation)
+        self.assertTrue(validate_explanation(explanation, facts))
 
 
 if __name__ == "__main__":

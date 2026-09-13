@@ -14,9 +14,12 @@ from .models import NormalizedEvent, Recommendation, Request, UserProfile
 @dataclass(frozen=True)
 class ExplanationFacts:
     amount_safe_to_pay: Decimal
+    requested_amount: Decimal
     home_currency: str
     current_available_balance: Decimal
     minimum_balance_to_keep: Decimal
+    request_date: date
+    desired_completion_date: date
     recommendation: Recommendation
     earliest_full_payment_date: date | None
     confirmed_income: tuple[NormalizedEvent, ...]
@@ -25,9 +28,12 @@ class ExplanationFacts:
     def closed_fields(self) -> dict[str, str]:
         fields = {
             "amount_safe_to_pay": _money(self.amount_safe_to_pay),
+            "requested_amount": _money(self.requested_amount),
             "home_currency": self.home_currency,
             "current_available_balance": _money(self.current_available_balance),
             "minimum_balance_to_keep": _money(self.minimum_balance_to_keep),
+            "request_date": self.request_date.isoformat(),
+            "desired_completion_date": self.desired_completion_date.isoformat(),
             "recommended_payment_method": self.recommendation.recommended_payment_method,
             "affordability_status": self.recommendation.affordability_status,
             "payment_plan": self.recommendation.payment_plan,
@@ -70,8 +76,10 @@ def build_explanation_facts(
         and event.cash_treatment in {"settled_cash", "reserve_pending_debit", "scheduled_cash"}
     ), key=lambda event: (-event.amount_in_home_currency, event.event_id))[:2])
     return ExplanationFacts(
-        amount_safe_to_pay, profile.home_currency, profile.current_available_balance,
-        profile.minimum_balance_to_keep, recommendation, earliest_full_payment_date,
+        amount_safe_to_pay, request.requested_amount, profile.home_currency,
+        profile.current_available_balance, profile.minimum_balance_to_keep,
+        request.request_date, request.desired_completion_date, recommendation,
+        earliest_full_payment_date,
         confirmed_income, recurring_expenses,
     )
 
@@ -86,30 +94,50 @@ def generate_explanation(facts: ExplanationFacts, rephraser: OptionalExplanation
 
 
 def deterministic_explanation(facts: ExplanationFacts) -> str:
+    """Explain an already-selected result; this function never decides it.
+
+    The wording deliberately follows a consistent order: requested amount,
+    immediately safe capacity, safety boundary, selected schedule, and the
+    small number of verified cash-flow facts relevant to the 90-day forecast.
+    This keeps the explanation useful in a CSV cell without turning it into a
+    second financial engine.
+    """
     currency = facts.home_currency
     safe = _money(facts.amount_safe_to_pay)
+    requested = _money(facts.requested_amount)
     floor = _money(facts.minimum_balance_to_keep)
     balance = _money(facts.current_available_balance)
     recommendation = facts.recommendation
+    text = (
+        f"Requested: {currency} {requested}. Safe to pay today: {currency} {safe}. "
+        f"Current available balance: {currency} {balance}; required minimum balance: {currency} {floor}. "
+    )
     if recommendation.recommended_payment_method == "not_recommended":
-        text = f"Safe to pay now: {currency} {safe}. Selected method: not_recommended; no safe eligible payment plan was found while preserving the {currency} {floor} minimum balance."
-    else:
-        text = (
-            f"Safe to pay now: {currency} {safe}. Selected method: {recommendation.recommended_payment_method}; "
-            f"the deterministic 90-day forecast preserves the {currency} {floor} minimum balance from a current available balance of {currency} {balance}."
+        text += (
+            f"Recommendation: not_recommended. No safe eligible supplied payment plan completes the request by {facts.desired_completion_date.isoformat()} "
+            f"while preserving the 90-day minimum-balance requirement."
         )
+    else:
+        text += (
+            f"Recommendation: {recommendation.recommended_payment_method}. "
+            f"Payment plan: {recommendation.payment_plan}. "
+        )
+        if recommendation.affordability_status == "affordable_now":
+            text += "The selected full payment is safe on the request date under the deterministic 90-day forecast."
+        elif recommendation.affordability_status == "affordable_later":
+            text += "The selected full payment becomes safe later within the forecast horizon."
+        else:
+            text += "The selected plan completes the request by its deadline while preserving the 90-day minimum-balance requirement."
     if facts.earliest_full_payment_date is not None and facts.earliest_full_payment_date != _plan_first_date(recommendation.payment_plan):
-        text += f" Earliest safe full-payment date: {facts.earliest_full_payment_date.isoformat()}."
-    elif recommendation.recommended_payment_method == "wait" and facts.earliest_full_payment_date is not None:
         text += f" Earliest safe full-payment date: {facts.earliest_full_payment_date.isoformat()}."
     if recommendation.spending_changes_needed != "none":
         text += f" Required spending changes: {recommendation.spending_changes_needed}."
     if facts.confirmed_income:
         income = facts.confirmed_income[0]
-        text += f" Confirmed salary of {currency} {_money(income.amount_in_home_currency or Decimal('0'))} is included on {income.effective_date.isoformat()}."
+        text += f" Included confirmed salary: {currency} {_money(income.amount_in_home_currency or Decimal('0'))} on {income.effective_date.isoformat()}."
     if facts.recurring_expenses:
         expense = facts.recurring_expenses[0]
-        text += f" Recurring expense of {currency} {_money(expense.amount_in_home_currency or Decimal('0'))} is included."
+        text += f" Included recurring {expense.category} expense: {currency} {_money(expense.amount_in_home_currency or Decimal('0'))}."
     return text
 
 
