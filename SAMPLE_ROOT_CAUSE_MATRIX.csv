@@ -1,22 +1,22 @@
 request_id,direction_of_error,safe_amount_difference,likely_root_cause,protected_expense_issue,recurrence_issue,income_issue,event_lifecycle_issue,message_issue,image_issue,currency_issue,timing_issue,other_issue,confidence
-request_02,too_high,576923.81,baseline interpretation,protected categories have no observed variable rows,possible,no raw join issue,no,no,no,no,possible,benchmark needs lower baseline,low
-request_03,too_high,221847.18,missing image/evidence plus variable groceries,groceries historical rows,possible,possible,no,unparsed payroll notice,blank image_01,no,no,medium
-request_04,too_high,4291200,variable protected groceries/transport,protected variable rows,possible,no,no,no,no,no,no,medium
-request_05,too_high,6562.49,variable protected groceries,protected grocery rows,possible,no,failed correctly excluded,no,no,no,no,medium
-request_06,too_high,17.10,unresolved temporary salary treatment,protected transport rows,no,possible,cancelled correctly excluded,temporary payroll statement,no,no,no,low
-request_07,too_high,12136.51,payroll-date evidence/recurrence,no variable protected history,possible,possible,no,dated payroll message,no,no,yes,no,medium
-request_08,too_high,82.08,variable protected groceries,protected grocery rows,possible,undated salary amendment,no,yes,no,no,no,medium
-request_10,too_high,31520.79,variable protected groceries/transport,protected variable rows,possible,pending payout correctly excluded,no,no,no,no,no,medium
-request_11,too_high,599355,unresolved salary/commission interpretation,protected categories no variable rows,possible,possible,no,Indonesian payroll detail,no,no,no,low
-request_13,too_high,508.20,variable protected groceries/transport,protected variable rows,possible,no,no,no,no,no,no,medium
-request_14,too_high,162.08,unquantified childcare/variable groceries,protected grocery rows,possible,possible,no,childcare no amount,no,no,no,low
-request_15,too_low,-83.05,recurring debit or timing over-reserved,protected grocery rows,possible,confirmed first salary,no,no,no,no,possible,medium
-request_17,too_high,11938.44,missing grocery image amount,protected grocery rows,possible,no,no,no,blank image_03,no,no,medium
-request_18,too_high,232.61,recurrence/variable timing,protected categories no variable rows,possible,no,no,transfer note unlinked,no,no,possible,low
-request_19,too_low,-994.09,recurring debit or missing grocery image offset,protected grocery rows,possible,no,no,no,blank image_04,no,possible,medium
-request_20,too_high,10382.57,missing pending utility image amount,protected categories no variable rows,possible,pending refund correctly excluded,pending debit reserved,no,blank image_05,no,no,medium
-request_21,too_high,31.05,variable protected groceries,protected grocery rows,possible,no,pending debit reserved,no,no,no,no,medium
-request_22,too_high,58.66,variable protected groceries/transport,protected variable rows,possible,no,pending debit reserved,no,no,no,no,medium
-request_23,too_high,2765.43,variable protected groceries,protected grocery rows,possible,pending prize correctly excluded,pending debit reserved,no,no,no,no,medium
-request_24,too_high,4268.49,variable protected transport,protected transport rows,possible,no,no,no,no,no,no,medium
-request_25,too_high,1938300,variable protected transport/recurrence,protected transport rows,possible,no,failed correctly excluded,no,no,dated conversion verified,no,medium
+request_02,too_high,576923.81,baseline_interpretation,no_variable_protected_rows,possible,verified_salary_update,no,no,no,no,possible,lower_implied_baseline,low
+request_03,too_high,221847.18,image_and_variable_groceries,groceries_history,possible,possible,no,unparsed_payroll,blank_image_01,no,no,none,medium
+request_04,too_high,4291200,variable_protected_spending,groceries_transport_history,possible,no,no,no,no,no,no,none,medium
+request_05,too_high,6562.49,variable_protected_groceries,groceries_history,possible,no,failed_excluded,no,no,no,no,none,medium
+request_06,too_high,17.10,temporary_salary_interpretation,transport_history,no,possible,cancelled_excluded,temporary_payroll,no,no,no,none,low
+request_07,too_high,12136.51,payroll_date_recurrence,no_variable_protected_rows,possible,possible,no,dated_payroll,no,no,yes,none,medium
+request_08,too_high,82.08,variable_protected_groceries,groceries_history,possible,undated_salary_update,no,yes,no,no,no,none,medium
+request_10,too_high,31520.79,variable_protected_spending,groceries_transport_history,possible,pending_payout_excluded,no,no,no,no,no,none,medium
+request_11,too_high,599355,salary_commission_interpretation,no_variable_protected_rows,possible,possible,no,indonesian_payroll,no,no,no,none,low
+request_13,too_high,508.20,variable_protected_spending,groceries_transport_history,possible,no,no,no,no,no,no,none,medium
+request_14,too_high,162.08,childcare_and_groceries,groceries_history,possible,possible,no,unquantified_childcare,no,no,no,none,low
+request_15,too_low,-83.05,over_reserved_debit_or_timing,groceries_history,possible,confirmed_first_salary,no,no,no,no,possible,none,medium
+request_17,too_high,11938.44,missing_grocery_image,groceries_history,possible,no,no,no,blank_image_03,no,no,none,medium
+request_18,too_high,232.61,recurrence_or_timing,no_variable_protected_rows,possible,no,no,unlinked_transfer,no,no,possible,none,low
+request_19,too_low,-994.09,over_reserved_or_image_offset,groceries_history,possible,no,no,no,blank_image_04,no,possible,none,medium
+request_20,too_high,10382.57,missing_pending_utility_image,no_variable_protected_rows,possible,pending_refund_excluded,pending_debit_reserved,no,blank_image_05,no,no,none,medium
+request_21,too_high,31.05,variable_protected_groceries,groceries_history,possible,no,pending_debit_reserved,no,no,no,no,none,medium
+request_22,too_high,58.66,variable_protected_spending,groceries_transport_history,possible,no,pending_debit_reserved,no,no,no,no,none,medium
+request_23,too_high,2765.43,variable_protected_groceries,groceries_history,possible,pending_prize_excluded,pending_debit_reserved,no,no,no,no,none,medium
+request_24,too_high,4268.49,variable_protected_transport,transport_history,possible,no,no,no,no,no,no,none,medium
+request_25,too_high,1938300,variable_transport_recurrence,transport_history,possible,no,failed_excluded,no,no,dated_rate_verified,no,none,medium
