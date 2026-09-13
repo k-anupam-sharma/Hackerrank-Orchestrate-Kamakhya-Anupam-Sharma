@@ -11,6 +11,7 @@ from buy_or_wait.ai_adapter import (
     GroqChatJsonTransport,
     LLMExplanationGenerator,
     LLMModelAdapter,
+    NvidiaChatJsonTransport,
     configured_transport_from_environment,
 )
 from buy_or_wait.evidence import EvidenceProcessor, extract_message_facts
@@ -105,6 +106,22 @@ class AIAdapterTests(unittest.TestCase):
             os.environ.clear()
             os.environ.update(previous)
         self.assertIsInstance(transport, GroqChatJsonTransport)
+        self.assertEqual("test-model", transport.model)
+
+    def test_environment_selects_nvidia_without_using_other_provider_keys(self) -> None:
+        previous = dict(os.environ)
+        try:
+            os.environ.update({
+                "LLM_PROVIDER": "nvidia",
+                "LLM_MODEL": "test-model",
+                "NVIDIA_API_KEY": "test-key",
+                "GROQ_API_KEY": "different-key",
+            })
+            transport = configured_transport_from_environment()
+        finally:
+            os.environ.clear()
+            os.environ.update(previous)
+        self.assertIsInstance(transport, NvidiaChatJsonTransport)
         self.assertEqual("test-model", transport.model)
 
 

@@ -101,6 +101,11 @@ has no additional package dependency. It can extract bounded evidence facts
 and rephrase only verified explanation fields; financial calculations and
 decisions stay deterministic.
 
+For NVIDIA NIM, set `LLM_PROVIDER=nvidia`, choose a model with the needed
+JSON/vision capability, and set `NVIDIA_API_KEY` in the local environment.
+NVIDIA is subject to the same bounded-fact validation and has no authority
+over financial calculations or recommendations.
+
 ## Commands and paths
 
 | Purpose | Command |
