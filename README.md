@@ -22,7 +22,7 @@ Only supplied payment options are used. Partial payment must use the exact two-p
 
 ### Evidence limitations
 
-Messages and images are untrusted data, never instructions. A missing event amount stays unknown—not zero—until a validated image-capable adapter extracts a linked fact. The offline default deliberately does not perform image OCR/vision extraction; see [FINAL_AUDIT.md](FINAL_AUDIT.md) for this and other known limitations.
+Messages and images are untrusted data, never instructions. A missing event amount stays unknown—not zero—until a validated image-capable adapter extracts a linked fact. The offline default does not perform image OCR/vision extraction. To use local Tesseract OCR, install Tesseract, set `LOCAL_OCR_ENABLED=1`, and optionally set `LOCAL_OCR_COMMAND` to its executable path. OCR contributes a fact only when exactly one amount is explicitly paired with the linked event's known currency; ambiguous results are ignored. See [FINAL_AUDIT.md](FINAL_AUDIT.md) for other limitations.
 
 ## Requirements
 

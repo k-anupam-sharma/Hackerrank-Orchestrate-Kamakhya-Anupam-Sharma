@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import re
+import os
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -48,11 +51,54 @@ class DisabledModelAdapter:
         return ()
 
 
+@dataclass(frozen=True)
+class TesseractImageAdapter:
+    """Optional local OCR adapter for image-backed event amounts.
+
+    OCR text is treated as untrusted evidence.  The adapter emits a fact only
+    when it finds exactly one value explicitly paired with the linked event's
+    known currency; it never derives a balance, event date, or instruction.
+    """
+
+    executable: str = "tesseract"
+    timeout_seconds: int = 20
+
+    def extract_message(self, message: Message) -> Sequence[EvidenceCandidate]:
+        return ()
+
+    def extract_image(self, image_path: Path, linked_event: FinancialEvent) -> Sequence[EvidenceCandidate]:
+        if linked_event.currency not in CURRENCIES:
+            return ()
+        try:
+            completed = subprocess.run(
+                [self.executable, str(image_path), "stdout", "--psm", "6"],
+                check=False, capture_output=True, text=True, timeout=self.timeout_seconds,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ()
+        if completed.returncode != 0:
+            return ()
+        amounts = _ocr_currency_amounts(completed.stdout, linked_event.currency)
+        if len(amounts) != 1:
+            return ()
+        return (EvidenceCandidate(
+            "event_amount", linked_event.event_id, amounts[0], linked_event.currency,
+            confidence=Decimal("0.75"), rationale="local OCR amount paired with linked-event currency",
+        ),)
+
+
 def model_adapter_from_environment() -> ModelAdapter:
     """Return the safe default unless a future provider integration is installed explicitly."""
     from .ai_adapter import configured_model_adapter_from_environment
 
-    return configured_model_adapter_from_environment() or DisabledModelAdapter()
+    configured = configured_model_adapter_from_environment()
+    if configured is not None:
+        return configured
+    if os.getenv("LOCAL_OCR_ENABLED", "").strip().lower() in {"1", "true", "yes"}:
+        executable = os.getenv("LOCAL_OCR_COMMAND", "").strip() or shutil.which("tesseract")
+        if executable:
+            return TesseractImageAdapter(executable)
+    return DisabledModelAdapter()
 
 
 def _amount_and_currency(text: str) -> tuple[Decimal, str] | None:
@@ -60,6 +106,20 @@ def _amount_and_currency(text: str) -> tuple[Decimal, str] | None:
     if match is None:
         return None
     return Decimal(match.group(2).replace(",", "")), match.group(1).upper()
+
+
+def _ocr_currency_amounts(text: str, currency: str) -> tuple[Decimal, ...]:
+    """Return unique amounts explicitly adjacent to one expected currency code."""
+    token = re.escape(currency)
+    patterns = (
+        re.compile(rf"\b{token}\s*([0-9][0-9,]*(?:\.[0-9]+)?)\b", re.I),
+        re.compile(rf"\b([0-9][0-9,]*(?:\.[0-9]+)?)\s*{token}\b", re.I),
+    )
+    values = {
+        Decimal(match.group(1).replace(",", ""))
+        for pattern in patterns for match in pattern.finditer(text)
+    }
+    return tuple(sorted(values))
 
 
 def _date_from_text(text: str) -> date | None:

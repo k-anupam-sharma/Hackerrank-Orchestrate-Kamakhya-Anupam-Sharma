@@ -4,8 +4,9 @@ import unittest
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import patch
 
-from buy_or_wait.evidence import EvidenceProcessor, EvidenceValidationError, extract_message_facts
+from buy_or_wait.evidence import EvidenceProcessor, EvidenceValidationError, TesseractImageAdapter, extract_message_facts
 from buy_or_wait.loaders import load_dataset
 from buy_or_wait.models import EvidenceCandidate, Message
 from buy_or_wait.normalization import normalize_user_events
@@ -136,6 +137,26 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(Decimal("4365000"), image_fact.amount)
         self.assertEqual("event_253", image_fact.related_event_id)
         self.assertEqual("image", image_fact.source_kind)
+
+    @patch("buy_or_wait.evidence.subprocess.run")
+    def test_local_ocr_extracts_only_one_amount_with_the_linked_currency(self, run) -> None:
+        run.return_value.returncode = 0
+        run.return_value.stdout = "Receipt\nTotal due: IDR 4,365,000\nThank you"
+        event = self.index.events_by_id["event_253"]
+        image = self.index.images_by_id["image_01"]
+        facts = EvidenceProcessor(self.index, TesseractImageAdapter("tesseract")).extract_facts_for_request("request_03")
+        fact = next(item for item in facts if item.source_id == image.image_id)
+        self.assertEqual(Decimal("4365000"), fact.amount)
+        self.assertEqual(event.event_id, fact.related_event_id)
+        self.assertEqual("IDR", fact.currency)
+
+    @patch("buy_or_wait.evidence.subprocess.run")
+    def test_local_ocr_rejects_ambiguous_currency_amounts(self, run) -> None:
+        run.return_value.returncode = 0
+        run.return_value.stdout = "IDR 100\nIDR 200"
+        event = self.index.events_by_id["event_253"]
+        image = self.index.images_by_id["image_01"]
+        self.assertEqual((), TesseractImageAdapter("tesseract").extract_image(image.path, event))
 
 
 if __name__ == "__main__":
