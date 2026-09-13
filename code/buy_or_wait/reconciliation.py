@@ -65,28 +65,46 @@ def reconcile_evidence_facts(index, user_id: str, events: Sequence[NormalizedEve
     # source-backed salary amount used for future projections.
     unlinked_income = _latest_unlinked_income_facts(facts, user_id)
     for fact in unlinked_income:
-        if fact.amount is None:
-            continue
         dated = fact.effective_date
+        target = _latest_recurring_salary(reconciled, user_id)
         if dated is not None:
+            # A dated payroll confirmation is a future scheduled fact, not a
+            # reason to replay a historical settled salary at a new date.  If
+            # the message omits the amount, it may reuse only the latest
+            # verified recurring salary amount for the same user.
+            amount = fact.amount if fact.amount is not None else (target.amount if target else None)
+            currency = fact.currency or (target.currency if target else None)
+            if amount is None or currency is None:
+                continue
             amount_home, conversion_status = _home_amount(
-                index, fact.amount, fact.currency or "", _home_currency_for_user(index, user_id), dated,
+                index, amount, currency, _home_currency_for_user(index, user_id), dated,
             )
             if amount_home is None:
                 continue
+            recurring = "recurring" in fact.rationale
+            if recurring:
+                # This bounded future anchor supersedes source-history
+                # projections for salary; otherwise both calendars would be
+                # forecast and the income would be double-counted.
+                reconciled = [
+                    replace(event, is_recurring=False, source=f"{event.source}+superseded:{fact.source_id}")
+                    if event.user_id == user_id and event.event_type == "income" and event.category == "salary"
+                    and event.is_recurring else event
+                    for event in reconciled
+                ]
             reconciled.append(NormalizedEvent(
                 event_id=f"evidence_income:{fact.source_id}", user_id=user_id,
                 effective_date=dated, event_date=dated, settlement_date=dated,
-                amount=fact.amount, currency=fact.currency or _home_currency_for_user(index, user_id),
+                amount=amount, currency=currency,
                 amount_in_home_currency=amount_home, home_currency=_home_currency_for_user(index, user_id),
                 conversion_date=dated, conversion_status=conversion_status,
                 event_type="income", event_kind="income", category="salary", direction="credit",
                 status="scheduled", linked_event_id=None, lifecycle_role="evidence_confirmed",
-                cash_treatment="scheduled_cash", is_recurring="recurring" in fact.rationale, is_flexible=False,
+                cash_treatment="scheduled_cash", is_recurring=recurring, is_flexible=False,
                 flexibility="fixed", minimum_allowed_amount=None, source=f"messages.csv:{fact.source_id}",
                 description="Confirmed salary from unlinked message",
             ))
-        else:
+        elif fact.amount is not None:
             _amend_latest_salary_amount(reconciled, index, user_id, fact)
     return tuple(sorted(reconciled, key=lambda event: (event.effective_date, event.event_id)))
 
@@ -106,15 +124,20 @@ def _home_currency_for_user(index, user_id: str) -> str:
     return index.profiles_by_user_id[user_id].home_currency
 
 
-def _amend_latest_salary_amount(reconciled: list[NormalizedEvent], index, user_id: str, fact: EvidenceFact) -> None:
+def _latest_recurring_salary(events: Sequence[NormalizedEvent], user_id: str) -> NormalizedEvent | None:
     targets = [
-        event for event in reconciled
-        if event.user_id == user_id and event.event_type == "income" and event.category == "salary"
-        and event.direction == "credit" and event.is_recurring
+        event for event in events
+        if event.user_id == user_id and event.event_type == "income"
+        and event.category == "salary" and event.direction == "credit"
+        and event.is_recurring and event.amount is not None
     ]
-    if not targets:
+    return max(targets, key=lambda event: (event.effective_date, event.event_id)) if targets else None
+
+
+def _amend_latest_salary_amount(reconciled: list[NormalizedEvent], index, user_id: str, fact: EvidenceFact) -> None:
+    target = _latest_recurring_salary(reconciled, user_id)
+    if target is None:
         return
-    target = max(targets, key=lambda event: (event.effective_date, event.event_id))
     currency = fact.currency or target.currency
     settlement = target.settlement_date or target.effective_date
     home_amount, conversion_status = _home_amount(index, fact.amount, currency, target.home_currency, settlement) if fact.amount is not None else (None, "missing_amount")

@@ -85,6 +85,28 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(Decimal("2717"), evidence_event.amount)
         self.assertEqual("messages.csv:m-resume", evidence_event.source)
 
+    def test_dated_payroll_amendment_without_amount_uses_verified_salary_anchor(self) -> None:
+        payroll_notice = Message(
+            "m-date", "user_07", "request_07", None,
+            datetime(2024, 9, 1, tzinfo=timezone.utc), "employer",
+            "Your confirmed salary is now expected on 2024-09-23. This replaces the payroll date shown earlier.",
+        )
+        facts = extract_message_facts(payroll_notice, self.index)
+        self.assertEqual(1, len(facts))
+        self.assertIsNone(facts[0].amount)
+        self.assertEqual("2024-09-23", facts[0].effective_date.isoformat())
+        normalized = reconcile_evidence_facts(
+            self.index, "user_07", normalize_user_events(self.index, "user_07"), facts,
+        )
+        evidence_event = next(event for event in normalized if event.event_id == "evidence_income:m-date")
+        self.assertEqual(Decimal("149000"), evidence_event.amount)
+        self.assertEqual("2024-09-23", evidence_event.effective_date.isoformat())
+        self.assertTrue(evidence_event.is_recurring)
+        self.assertFalse(any(
+            event.is_recurring for event in normalized
+            if event.event_id.startswith("event_") and event.event_type == "income" and event.category == "salary"
+        ))
+
     def test_conflicting_messages_are_preserved_for_later_resolution(self) -> None:
         first = extract_message_facts(message("m-first", "Amount amended to ZAR 100."), self.index)[0]
         second = extract_message_facts(message("m-second", "Amount amended to ZAR 200."), self.index)[0]

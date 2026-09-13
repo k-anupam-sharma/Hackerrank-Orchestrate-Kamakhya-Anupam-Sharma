@@ -86,12 +86,27 @@ def deterministic_message_candidates(message: Message) -> tuple[EvidenceCandidat
     # on ...").  They are still bounded evidence: only the stated amount,
     # currency, and optional stated date are extracted.  No balance or policy
     # instruction in the message can become a fact.
-    income_words = any(word in text for word in ("salary", "payroll", "income", "payslip"))
-    income_confirmation_words = any(word in text for word in ("confirmed", "resumes", "next salary", "next payslip", "credit date"))
-    if amount and income_words and income_confirmation_words:
-        recurring = any(word in text for word in ("regular salary", "recurring salary", "salary resumes", "recurring payroll"))
+    income_words = any(word in text for word in (
+        "salary", "payroll", "income", "payslip", "gaji", "penggajian", "slip gaji",
+    ))
+    income_confirmation_words = any(word in text for word in (
+        "confirmed", "resumes", "next salary", "next payslip", "credit date",
+        "dikonfirmasi", "berlaku", "terjadwal", "expected on", "replaces",
+    ))
+    # A dated payroll notice can amend the timing of a verified salary even
+    # when it repeats no amount.  The reconciler will use the latest verified
+    # salary amount; the message is never allowed to fabricate one.
+    if income_words and income_confirmation_words and (amount or delayed_date):
+        recurring = any(word in text for word in (
+            "regular salary", "recurring salary", "salary resumes", "recurring payroll",
+            "monthly pay", "monthly salary", "payroll record", "penggajian",
+        )) or ("payroll" in text and "replaces" in text and delayed_date is not None)
         rationale = "explicit confirmed recurring income" if recurring else "explicit confirmed income"
-        candidates.append(EvidenceCandidate("income_confirmed", message.related_event_id, amount[0], amount[1], delayed_date, Decimal("0.80"), rationale))
+        candidates.append(EvidenceCandidate(
+            "income_confirmed", message.related_event_id,
+            amount[0] if amount else None, amount[1] if amount else None,
+            delayed_date, Decimal("0.80"), rationale,
+        ))
     return tuple(candidates)
 
 
@@ -189,11 +204,13 @@ def _grounded_in_message(candidate: EvidenceCandidate, message: Message) -> bool
     if candidate.fact_type == "payment_delayed":
         return _date_from_text(message.message_text) is not None and any(word in text for word in ("delayed", "expected", "rescheduled", "replaces"))
     if candidate.fact_type == "income_confirmed":
-        return (
-            _amount_and_currency(message.message_text) is not None
-            and any(word in text for word in ("salary", "payroll", "income", "payslip"))
-            and any(word in text for word in ("confirmed", "resumes", "next salary", "next payslip", "credit date"))
-        )
+        has_amount_or_date = _amount_and_currency(message.message_text) is not None or _date_from_text(message.message_text) is not None
+        return has_amount_or_date and any(word in text for word in (
+            "salary", "payroll", "income", "payslip", "gaji", "penggajian", "slip gaji",
+        )) and any(word in text for word in (
+            "confirmed", "resumes", "next salary", "next payslip", "credit date",
+            "dikonfirmasi", "berlaku", "terjadwal", "expected on", "replaces",
+        ))
     return candidate.fact_type == "event_amount" and _amount_and_currency(message.message_text) is not None
 
 
