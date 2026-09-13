@@ -6,6 +6,8 @@ import base64
 import json
 import os
 import re
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -59,6 +61,57 @@ class OpenAIChatJsonTransport:
         )
         content = response.choices[0].message.content
         if not content:
+            raise RuntimeError("Model returned no JSON content")
+        return content
+
+
+@dataclass(frozen=True)
+class GroqChatJsonTransport:
+    """Optional Groq transport for bounded facts and verified explanations only."""
+
+    model: str
+    api_key: str
+
+    def complete_json(self, *, system_prompt: str, user_prompt: str, image_path: Path | None = None) -> str:
+        user_content: str | list[dict[str, object]] = user_prompt
+        if image_path is not None:
+            encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
+            user_content = [
+                {"type": "text", "text": user_prompt},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}},
+            ]
+        payload = json.dumps({
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0,
+        }).encode("utf-8")
+        request = urllib.request.Request(
+            "https://api.groq.com/openai/v1/chat/completions",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code in {401, 403}:
+                raise RuntimeError("Groq authentication failed.") from exc
+            raise RuntimeError(f"Groq request failed with HTTP {exc.code}.") from exc
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("Groq request failed.") from exc
+        try:
+            content = body["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise RuntimeError("Model returned no JSON content") from exc
+        if not isinstance(content, str) or not content:
             raise RuntimeError("Model returned no JSON content")
         return content
 
@@ -136,13 +189,16 @@ def configured_explanation_generator_from_environment() -> LLMExplanationGenerat
     return LLMExplanationGenerator(transport, _environment_retries())
 
 
-def configured_transport_from_environment() -> OpenAIChatJsonTransport | None:
+def configured_transport_from_environment() -> StructuredJsonTransport | None:
     provider = (os.getenv("EVIDENCE_MODEL_PROVIDER") or os.getenv("LLM_PROVIDER") or "").strip().lower()
     model = (os.getenv("EVIDENCE_MODEL_MODEL") or os.getenv("LLM_MODEL") or "").strip()
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if provider != "openai" or not model or not api_key:
-        return None
-    return OpenAIChatJsonTransport(model, api_key)
+    if provider == "openai":
+        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        return OpenAIChatJsonTransport(model, api_key) if model and api_key else None
+    if provider == "groq":
+        api_key = os.getenv("GROQ_API_KEY", "").strip()
+        return GroqChatJsonTransport(model, api_key) if model and api_key else None
+    return None
 
 
 def _environment_retries() -> int:

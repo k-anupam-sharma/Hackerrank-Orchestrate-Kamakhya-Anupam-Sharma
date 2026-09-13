@@ -75,7 +75,7 @@ The expected success line is `Evaluated 250 rows; failures=0` for the included d
 
 ## Optional LLM configuration
 
-The solver works without these settings. To enable the optional OpenAI adapter, first install its SDK explicitly and create a local environment file from the example:
+The solver works without these settings. To enable an optional OpenAI or Groq adapter, first install its SDK explicitly and create a local environment file from the example:
 
 ```bash
 python -m pip install openai
@@ -93,6 +93,13 @@ LLM_MAX_RETRIES=2
 ```
 
 Never commit `.env` or an API key. If the provider, model, or key is absent, unavailable, or returns invalid data, the solver falls back safely to deterministic behavior.
+
+For Groq, set `LLM_PROVIDER=groq`, choose a Groq model with the JSON/vision
+capability required by the work, and set `GROQ_API_KEY` in the local
+environment. The Groq adapter uses its OpenAI-compatible HTTPS endpoint and
+has no additional package dependency. It can extract bounded evidence facts
+and rephrase only verified explanation fields; financial calculations and
+decisions stay deterministic.
 
 ## Commands and paths
 

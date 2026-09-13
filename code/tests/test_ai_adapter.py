@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from buy_or_wait.ai_adapter import FACT_SYSTEM_PROMPT, LLMExplanationGenerator, LLMModelAdapter
+from buy_or_wait.ai_adapter import (
+    FACT_SYSTEM_PROMPT,
+    GroqChatJsonTransport,
+    LLMExplanationGenerator,
+    LLMModelAdapter,
+    configured_transport_from_environment,
+)
 from buy_or_wait.evidence import EvidenceProcessor, extract_message_facts
 from buy_or_wait.loaders import load_dataset
 from buy_or_wait.models import Message
@@ -83,6 +90,22 @@ class AIAdapterTests(unittest.TestCase):
         )
         self.assertEqual("full_payment", solved.recommended_payment_method)
         self.assertEqual("Selected full_payment.", solved.decision_explanation)
+
+    def test_environment_selects_groq_without_using_openai_key(self) -> None:
+        previous = dict(os.environ)
+        try:
+            os.environ.update({
+                "LLM_PROVIDER": "groq",
+                "LLM_MODEL": "test-model",
+                "GROQ_API_KEY": "test-key",
+                "OPENAI_API_KEY": "different-key",
+            })
+            transport = configured_transport_from_environment()
+        finally:
+            os.environ.clear()
+            os.environ.update(previous)
+        self.assertIsInstance(transport, GroqChatJsonTransport)
+        self.assertEqual("test-model", transport.model)
 
 
 if __name__ == "__main__":
