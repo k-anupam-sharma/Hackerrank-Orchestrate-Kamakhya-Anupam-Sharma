@@ -109,17 +109,35 @@ def _amount_and_currency(text: str) -> tuple[Decimal, str] | None:
 
 
 def _ocr_currency_amounts(text: str, currency: str) -> tuple[Decimal, ...]:
-    """Return unique amounts explicitly adjacent to one expected currency code."""
+    """Return one unambiguous final amount explicitly paired with currency.
+
+    Payslips and invoices legitimately contain many amounts.  A final amount
+    label (for example ``Net Pay`` or ``Amount Due``) is stronger evidence than
+    a line-item amount.  Ties, or documents without one currency-paired value,
+    remain unresolved rather than guessed.
+    """
     token = re.escape(currency)
     patterns = (
         re.compile(rf"\b{token}\s*([0-9][0-9,]*(?:\.[0-9]+)?)\b", re.I),
         re.compile(rf"\b([0-9][0-9,]*(?:\.[0-9]+)?)\s*{token}\b", re.I),
     )
-    values = {
-        Decimal(match.group(1).replace(",", ""))
-        for pattern in patterns for match in pattern.finditer(text)
-    }
-    return tuple(sorted(values))
+    line_values: list[tuple[int, Decimal]] = []
+    for line in text.splitlines():
+        lowered = line.lower()
+        score = (
+            3 if any(label in lowered for label in ("net pay", "net amount", "amount due", "total payable"))
+            else 2 if "grand total" in lowered
+            else 1 if "total" in lowered
+            else 0
+        )
+        for pattern in patterns:
+            for match in pattern.finditer(line):
+                line_values.append((score, Decimal(match.group(1).replace(",", ""))))
+    if not line_values:
+        return ()
+    best_score = max(score for score, _ in line_values)
+    values = {amount for score, amount in line_values if score == best_score}
+    return tuple(sorted(values)) if len(values) == 1 else ()
 
 
 def _date_from_text(text: str) -> date | None:

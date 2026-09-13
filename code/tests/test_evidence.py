@@ -141,7 +141,10 @@ class EvidenceTests(unittest.TestCase):
     @patch("buy_or_wait.evidence.subprocess.run")
     def test_local_ocr_extracts_only_one_amount_with_the_linked_currency(self, run) -> None:
         run.return_value.returncode = 0
-        run.return_value.stdout = "Receipt\nTotal due: IDR 4,365,000\nThank you"
+        run.return_value.stdout = (
+            "Salary: IDR 4,500,000\nDeduction: IDR 135,000\n"
+            "Net Pay: IDR 4,365,000\n"
+        )
         event = self.index.events_by_id["event_253"]
         image = self.index.images_by_id["image_01"]
         facts = EvidenceProcessor(self.index, TesseractImageAdapter("tesseract")).extract_facts_for_request("request_03")
