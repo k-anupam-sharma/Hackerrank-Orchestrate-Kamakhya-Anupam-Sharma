@@ -81,8 +81,17 @@ def deterministic_message_candidates(message: Message) -> tuple[EvidenceCandidat
     delayed_date = _date_from_text(message.message_text)
     if message.related_event_id and delayed_date and any(word in text for word in ("delayed", "expected", "rescheduled", "replaces")):
         candidates.append(EvidenceCandidate("payment_delayed", message.related_event_id, effective_date=delayed_date, confidence=Decimal("0.80"), rationale="explicit revised date"))
-    if amount and "confirmed" in text and any(word in text for word in ("salary", "payroll", "income")):
-        candidates.append(EvidenceCandidate("income_confirmed", message.related_event_id, amount[0], amount[1], delayed_date, Decimal("0.80"), "explicit confirmed income"))
+    # Payroll notices can be explicit without using the literal word
+    # "confirmed" (for example, "next salary is reduced" or "salary resumes
+    # on ...").  They are still bounded evidence: only the stated amount,
+    # currency, and optional stated date are extracted.  No balance or policy
+    # instruction in the message can become a fact.
+    income_words = any(word in text for word in ("salary", "payroll", "income", "payslip"))
+    income_confirmation_words = any(word in text for word in ("confirmed", "resumes", "next salary", "next payslip", "credit date"))
+    if amount and income_words and income_confirmation_words:
+        recurring = any(word in text for word in ("regular salary", "recurring salary", "salary resumes", "recurring payroll"))
+        rationale = "explicit confirmed recurring income" if recurring else "explicit confirmed income"
+        candidates.append(EvidenceCandidate("income_confirmed", message.related_event_id, amount[0], amount[1], delayed_date, Decimal("0.80"), rationale))
     return tuple(candidates)
 
 
@@ -180,7 +189,11 @@ def _grounded_in_message(candidate: EvidenceCandidate, message: Message) -> bool
     if candidate.fact_type == "payment_delayed":
         return _date_from_text(message.message_text) is not None and any(word in text for word in ("delayed", "expected", "rescheduled", "replaces"))
     if candidate.fact_type == "income_confirmed":
-        return _amount_and_currency(message.message_text) is not None and "confirmed" in text and any(word in text for word in ("salary", "payroll", "income"))
+        return (
+            _amount_and_currency(message.message_text) is not None
+            and any(word in text for word in ("salary", "payroll", "income", "payslip"))
+            and any(word in text for word in ("confirmed", "resumes", "next salary", "next payslip", "credit date"))
+        )
     return candidate.fact_type == "event_amount" and _amount_and_currency(message.message_text) is not None
 
 

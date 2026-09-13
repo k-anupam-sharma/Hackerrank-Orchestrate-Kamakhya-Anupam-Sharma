@@ -25,7 +25,7 @@ if str(CODE_DIR) not in sys.path:
     sys.path.insert(0, str(CODE_DIR))
 
 from buy_or_wait.evidence import EvidenceProcessor, model_adapter_from_environment  # noqa: E402
-from buy_or_wait.forecast import forecast_balance, get_minimum_projected_balance  # noqa: E402
+from buy_or_wait.forecast import calculate_baseline_forecast, forecast_balance, get_minimum_projected_balance  # noqa: E402
 from buy_or_wait.loaders import DatasetIndex, RequestContext, load_dataset  # noqa: E402
 from buy_or_wait.models import PaymentPlan, ScheduledPayment, SpendingChange  # noqa: E402
 from buy_or_wait.normalization import normalize_user_events  # noqa: E402
@@ -64,6 +64,7 @@ class RecommendationView:
     normalized_events: tuple
     forecast_event_ids: tuple[str, ...]
     converted_rate_keys: tuple[tuple[date, str, str], ...]
+    baseline_forecast: object
     forecast: object
 
 
@@ -246,6 +247,12 @@ class BuyOrWaitTerminal:
             self.index, context.request.user_id, normalize_user_events(self.index, context.request.user_id), facts,
         )
         plan = self._display_plan(result, context.request.request_date)
+        baseline = calculate_baseline_forecast(
+            starting_balance=context.profile.current_available_balance,
+            minimum_balance_to_keep=context.profile.minimum_balance_to_keep,
+            normalized_events=normalized,
+            request_date=context.request.request_date,
+        )
         forecast = forecast_balance(
             starting_balance=context.profile.current_available_balance,
             minimum_balance_to_keep=context.profile.minimum_balance_to_keep,
@@ -269,7 +276,7 @@ class BuyOrWaitTerminal:
                 key = (event.conversion_date, event.currency, event.home_currency)
                 if key not in rates:
                     rates.append(key)
-        return RecommendationView(context, result, facts, normalized, tuple(event_ids), tuple(rates), forecast)
+        return RecommendationView(context, result, facts, normalized, tuple(event_ids), tuple(rates), baseline, forecast)
 
     def _format_view(self, view: RecommendationView) -> str:
         request, profile, result = view.context.request, view.context.profile, view.result
@@ -370,6 +377,11 @@ class BuyOrWaitTerminal:
             for event in view.normalized_events
             if event.effective_date >= context.request.request_date and event.cash_treatment.startswith("excluded")
         ]
+        recurring_projection_days = [
+            f"{day.forecast_date.isoformat()} {day.event_delta} {','.join(source_id for source_id in day.source_ids if source_id.startswith('recurrence:'))}"
+            for day in view.baseline_forecast.days
+            if any(source_id.startswith("recurrence:") for source_id in day.source_ids)
+        ]
         candidates = PlanGenerator().generate(
             request=context.request, profile=context.profile, payment_options=context.payment_options,
             amount_safe_to_pay=view.result.amount_safe_to_pay,
@@ -387,21 +399,32 @@ class BuyOrWaitTerminal:
                 f"{candidate.method}/{candidate.payment_option_id or 'none'}: "
                 f"{'valid' if validation.is_valid else 'rejected ' + ','.join(validation.errors)}"
             )
+        baseline_minimum = get_minimum_projected_balance(view.baseline_forecast)
+        baseline_day = min(view.baseline_forecast.days, key=lambda day: day.closing_balance)
         minimum = get_minimum_projected_balance(view.forecast)
         minimum_day = min(view.forecast.days, key=lambda day: day.closing_balance)
+        raw_capacity = baseline_minimum - context.profile.minimum_balance_to_keep
+        cap_amount = min(context.request.requested_amount, max(Decimal("0"), raw_capacity))
         lines = [
             "DEBUG",
             f"request_id: {context.request.request_id}",
             f"user_id: {context.request.user_id}",
             f"starting_balance: {context.profile.current_available_balance}",
             f"minimum_balance_to_keep: {context.profile.minimum_balance_to_keep}",
+            f"baseline_minimum: {baseline_minimum} on {baseline_day.forecast_date.isoformat()}",
+            f"baseline_minimum_minus_floor: {raw_capacity}",
+            f"requested_amount_cap: {cap_amount}",
+            f"amount_safe_to_pay: {view.result.amount_safe_to_pay}",
+            f"request_payment: {context.request.request_date.isoformat()} {view.result.amount_safe_to_pay}",
             f"forecast_minimum: {minimum} on {minimum_day.forecast_date.isoformat()}",
+            f"final_forecast_safe: {str(minimum >= context.profile.minimum_balance_to_keep).lower()}",
             "context event_ids: " + ", ".join(event.event_id for event in context.events[:20]),
             "payment_option_ids: " + ", ".join(option.payment_option_id for option in context.payment_options),
             "evidence facts: " + (", ".join(facts) if facts else "none"),
             "forecast event_ids: " + (", ".join(view.forecast_event_ids) if view.forecast_event_ids else "none"),
             "future normalized events: " + (" | ".join(future[:60]) if future else "none"),
             "excluded future events: " + (" | ".join(excluded) if excluded else "none"),
+            "projected recurring entries: " + (" | ".join(recurring_projection_days[:60]) if recurring_projection_days else "none"),
             "candidate validation: " + (" | ".join(validations) if validations else "none"),
             "selected plan: " + view.result.recommended_payment_method + " / " + view.result.payment_plan,
         ]

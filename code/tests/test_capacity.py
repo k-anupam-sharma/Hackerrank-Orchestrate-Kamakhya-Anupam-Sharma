@@ -7,6 +7,8 @@ from decimal import Decimal
 from buy_or_wait.capacity import (
     calculate_amount_safe_to_pay, find_earliest_safe_full_payment_date,
 )
+from buy_or_wait.forecast import calculate_baseline_forecast, get_minimum_projected_balance, is_plan_safe, forecast_balance
+from buy_or_wait.models import ScheduledPayment
 from test_forecast import START, event
 
 
@@ -58,6 +60,47 @@ class CapacityTests(unittest.TestCase):
         self.assertEqual(START + timedelta(days=3), self.earliest(balance="100", floor="50", requested="100", events=(boundary_salary,), horizon=4))
         after_horizon = event("later-salary", START + timedelta(days=4), "50", direction="credit", event_type="income", category="salary")
         self.assertIsNone(self.earliest(balance="100", floor="50", requested="100", events=(after_horizon,), horizon=4))
+
+    def test_direct_capacity_equals_baseline_minimum_minus_floor(self) -> None:
+        expense = event("expense", START + timedelta(days=2), "17.25")
+        baseline = calculate_baseline_forecast(
+            starting_balance=Decimal("100"), minimum_balance_to_keep=Decimal("50"),
+            normalized_events=(expense,), request_date=START, horizon_days=5,
+        )
+        self.assertEqual(Decimal("82.75"), get_minimum_projected_balance(baseline))
+        self.assertEqual(Decimal("32.75"), self.capacity(balance="100", floor="50", requested="100", events=(expense,), horizon=5))
+        safe = self.capacity(balance="100", floor="50", requested="100", events=(expense,), horizon=5)
+        self.assertTrue(is_plan_safe(forecast_balance(
+            starting_balance=Decimal("100"), minimum_balance_to_keep=Decimal("50"),
+            normalized_events=(expense,), request_date=START,
+            proposed_payments=(ScheduledPayment(START, safe),), horizon_days=5,
+        )))
+        self.assertFalse(is_plan_safe(forecast_balance(
+            starting_balance=Decimal("100"), minimum_balance_to_keep=Decimal("50"),
+            normalized_events=(expense,), request_date=START,
+            proposed_payments=(ScheduledPayment(START, safe + Decimal("0.01")),), horizon_days=5,
+        )))
+
+    def test_same_day_events_are_part_of_the_fixed_baseline(self) -> None:
+        income = event("income", START, "20", direction="credit", event_type="income", category="salary")
+        expense = event("same-day-expense", START, "10")
+        self.assertEqual(Decimal("60.00"), self.capacity(
+            balance="100", floor="50", requested="100", events=(income, expense), horizon=3,
+        ))
+
+    def test_capacity_is_monotonic_in_payment_amount(self) -> None:
+        event_after = event("expense", START + timedelta(days=1), "10")
+        safe = self.capacity(balance="100", floor="50", requested="100", events=(event_after,))
+        for amount in (Decimal("0"), safe, safe + Decimal("0.01"), Decimal("100")):
+            forecast = forecast_balance(
+                starting_balance=Decimal("100"), minimum_balance_to_keep=Decimal("50"),
+                normalized_events=(event_after,), request_date=START,
+                proposed_payments=(ScheduledPayment(START, amount),),
+            )
+            if amount <= safe:
+                self.assertTrue(is_plan_safe(forecast))
+            else:
+                self.assertFalse(is_plan_safe(forecast))
 
 
 if __name__ == "__main__":

@@ -8,6 +8,8 @@ from pathlib import Path
 from buy_or_wait.evidence import EvidenceProcessor, EvidenceValidationError, extract_message_facts
 from buy_or_wait.loaders import load_dataset
 from buy_or_wait.models import EvidenceCandidate, Message
+from buy_or_wait.normalization import normalize_user_events
+from buy_or_wait.reconciliation import reconcile_evidence_facts
 
 
 DATASET = Path(__file__).resolve().parents[2] / "dataset"
@@ -56,6 +58,32 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual("income_confirmed", facts[0].fact_type)
         self.assertEqual(Decimal("1500"), facts[0].amount)
         self.assertEqual("EUR", facts[0].currency)
+
+    def test_extracts_unlinked_recurring_salary_resume_as_bounded_fact(self) -> None:
+        facts = extract_message_facts(
+            message("m-resume", "Regular salary of EUR 2717 resumes on 2025-08-15.", None), self.index,
+        )
+        self.assertEqual(1, len(facts))
+        self.assertEqual("income_confirmed", facts[0].fact_type)
+        self.assertEqual(Decimal("2717"), facts[0].amount)
+        self.assertEqual("2025-08-15", facts[0].effective_date.isoformat())
+        self.assertIn("recurring", facts[0].rationale)
+
+    def test_dated_unlinked_income_becomes_source_backed_normalized_event(self) -> None:
+        resume_message = Message(
+            "m-resume", "user_14", "request_14", None,
+            datetime(2025, 7, 27, tzinfo=timezone.utc), "employer",
+            "Regular salary of EUR 2717 resumes on 2025-08-15.",
+        )
+        facts = extract_message_facts(resume_message, self.index)
+        normalized = reconcile_evidence_facts(
+            self.index, "user_14", normalize_user_events(self.index, "user_14"), facts,
+        )
+        # The fact is unlinked, so it must not mutate the raw event table; it is
+        # represented only as a bounded evidence-sourced normalized record.
+        evidence_event = next(event for event in normalized if event.event_id == "evidence_income:m-resume")
+        self.assertEqual(Decimal("2717"), evidence_event.amount)
+        self.assertEqual("messages.csv:m-resume", evidence_event.source)
 
     def test_conflicting_messages_are_preserved_for_later_resolution(self) -> None:
         first = extract_message_facts(message("m-first", "Amount amended to ZAR 100."), self.index)[0]

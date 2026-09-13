@@ -96,25 +96,36 @@ def _recurring_projections(
     projections: list[tuple[date, Decimal, str]] = []
     for group in by_key.values():
         ordered = sorted(group, key=lambda item: item.effective_date)
-        if len(ordered) < 2:
+        evidence_recurring_singleton = (
+            len(ordered) == 1
+            and ordered[0].event_type == "income"
+            and ordered[0].category == "salary"
+            and ordered[0].source.startswith("messages.csv:")
+        )
+        if len(ordered) < 2 and not evidence_recurring_singleton:
             continue
         gaps = [
             (later.effective_date - earlier.effective_date).days
             for earlier, later in zip(ordered, ordered[1:])
             if (later.effective_date - earlier.effective_date).days > 0
         ]
-        if not gaps:
+        if not gaps and not evidence_recurring_singleton:
             continue
-        interval = int(median(gaps))
+        interval = int(median(gaps)) if gaps else 30
         if interval <= 0:
             continue
         dates = [event.effective_date for event in ordered]
-        calendar_monthly = 28 <= interval <= 31 and len({item.day for item in dates}) == 1
+        calendar_monthly = evidence_recurring_singleton or (28 <= interval <= 31 and len({item.day for item in dates}) == 1)
         observed_dates = {event.effective_date for event in ordered}
         anchor_candidates = [event for event in ordered if event.effective_date <= request_date]
-        if not anchor_candidates:
+        if not anchor_candidates and evidence_recurring_singleton:
+            # A dated message-confirmed salary is itself the first future
+            # occurrence; project later monthly occurrences from that anchor.
+            anchor = ordered[0]
+        elif not anchor_candidates:
             continue
-        anchor = anchor_candidates[-1]
+        else:
+            anchor = anchor_candidates[-1]
         next_date = _add_month(anchor.effective_date) if calendar_monthly else anchor.effective_date + timedelta(days=interval)
         latest_delta = _included_cash_delta(anchor)
         assert latest_delta is not None
@@ -195,6 +206,30 @@ def forecast_balance(
         minimum_balance_to_keep=minimum_balance_to_keep,
         days=tuple(days),
         ignored_event_ids=tuple(ignored),
+    )
+
+
+def calculate_baseline_forecast(
+    *,
+    starting_balance: Decimal,
+    minimum_balance_to_keep: Decimal,
+    normalized_events: Sequence[NormalizedEvent],
+    request_date: date,
+    horizon_days: int = 90,
+) -> BalanceForecast:
+    """Build the reusable no-request-payment, no-spending-change forecast.
+
+    Capacity, earliest-payment analysis, and plan validation all need the same
+    deterministic cash-flow semantics.  Keeping this call explicit prevents a
+    capacity calculation from accidentally using a different event set or
+    horizon than the plan validator.
+    """
+    return forecast_balance(
+        starting_balance=starting_balance,
+        minimum_balance_to_keep=minimum_balance_to_keep,
+        normalized_events=normalized_events,
+        request_date=request_date,
+        horizon_days=horizon_days,
     )
 
 

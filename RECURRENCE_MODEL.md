@@ -16,6 +16,7 @@ The forecast also advanced monthly records by a median number of days. A 15th-of
 6. Flexible expenses are not automatically recurring merely because their category repeats. They remain eligible for a spending change only when the source data establishes a recurring stream.
 7. Monthly streams with a stable day-of-month advance by calendar month, clamping only for short months. Weekly/biweekly/irregular streams retain a median-day cadence.
 8. A scheduled record uses its planned `event_date` as the cash-flow date; its later `settlement_date` is preserved for provenance and currency conversion. Pending debits reserve cash on settlement; pending credits remain excluded.
+9. An unlinked message can be a source-backed payroll anchor only when it states a currency amount and explicit salary/payroll confirmation language. A dated message saying a regular salary resumes is projected monthly from that date; an undated notice amends the latest recurring payroll amount; a singular first-salary notice is a one-time confirmed credit. No amount, balance, or expense is inferred from vague text.
 
 ## Actual-data implications
 
